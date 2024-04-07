@@ -57,7 +57,7 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
         hanning_filter = numpy.hanning(N_t)
 
     if comm.rank == 0:
-        print_and_log(["Analyzing data to get whitening matrices and thresholds..."], 'default', logger)
+        print_and_log([f"Analyzing data to get whitening matrices and thresholds ({comm.Get_size()=})..."], 'default', logger)
 
     nodes_indices = {}
     for elec in numpy.arange(N_e):
