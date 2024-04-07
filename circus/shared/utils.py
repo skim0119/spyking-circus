@@ -27,6 +27,17 @@ from distutils.version import StrictVersion
 from scipy.optimize import brenth, minimize
 
 
+class CustomTqdm(tqdm.tqdm):
+    def update(self, n=1):
+        if n == self.total // 2:
+            super().update(n)
+        elif n == self.total // 2:
+            super().update(n)
+
+    def __str__(self):
+        return self.format_meter(**self.format_dict) + '\n'
+
+
 def largest_indices(ary, n):
     """Returns the n largest indices from a numpy array."""
     indices = np.argpartition(ary, -n)[-n:]
@@ -125,7 +136,7 @@ def apply_patch_for_similarities(params, extension):
         to_explore = numpy.arange(N_half - 1)[comm.rank::comm.size]
 
         if comm.rank == 0:
-            to_explore = get_tqdm_progressbar(params, to_explore)
+            to_explore = get_tqdm_progressbar(params, to_explore, desc="apply similarity patch")
 
         if not SHARED_MEMORY:
             over_x, over_y, over_data, over_shape = io.load_data(params, 'overlaps-raw', extension=extension)
@@ -252,11 +263,11 @@ def purge(file, pattern):
         print_and_log(['Removing %s for directory %s' % (pattern, dir)], 'debug', logger)
 
 
-def get_tqdm_progressbar(params, iterator):
+def get_tqdm_progressbar(params, iterator, desc=""):
     sys.stderr.flush()
     show_bars = params.getboolean('data', 'status_bars')
     if show_bars:
-        return tqdm.tqdm(iterator, bar_format='{desc}{percentage:3.0f}%|{bar}|[{elapsed}<{remaining}, {rate_fmt}]', ncols=33)
+        return CustomTqdm(iterator, bar_format='{desc}{percentage:3.0f}%|{bar}|[{elapsed}<{remaining}, {rate_fmt}]', ncols=33, desc=desc)
     else:
         return iterator
 

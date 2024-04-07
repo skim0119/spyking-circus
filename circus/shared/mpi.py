@@ -150,6 +150,11 @@ def gather_array(data, mpi_comm, root=0, shape=0, dtype='float32', compress=Fals
     # first we pass the data size
     size = data.size
     sizes = mpi_comm.gather(size, root=root) or []
+    if mpi_comm.Get_rank() == root:
+        total_size = sum(sizes)
+    else:
+        total_size = None
+    total_size = mpi_comm.bcast(total_size, root=root)
     # now we pass the data
     displacements = [numpy.int64(sum(sizes[:i])) for i in range(len(sizes))]
 
@@ -190,6 +195,8 @@ def all_gather_array(data, mpi_comm, shape=0, dtype='float32', compress=False):
     # gather 1D or 2D numpy arrays
     assert isinstance(data, numpy.ndarray)
     assert len(data.shape) < 3
+    #print_and_log([''], 'DEBUG', logger, False)
+
     # first we pass the data size
     size  = data.size
     sizes = mpi_comm.allgather(size) or []

@@ -442,11 +442,25 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
         nb_noise = 0
 
         if comm.rank == 0:
-            to_explore = get_tqdm_progressbar(params, to_explore)
+            to_explore = get_tqdm_progressbar(params, to_explore, desc="spike random selection")
 
+        # B1
+        if comm.rank == 0:
+            print_and_log([
+                f"[{comm.rank}/{comm.size}]: B1 arrived {gpass}..."],
+                'debug',
+                logger,
+                display=False
+            )
         comm.Barrier()
+        if comm.rank == 0:
+            print_and_log([
+                f"[{comm.rank}/{comm.size}]: B1 passed {gpass}"],
+                'debug',
+                logger,
+                display=False
+            )
         # # Random selection of spikes
-
         for gcount, gidx in enumerate(to_explore):
 
             gidx = all_chunks[gidx]
@@ -891,7 +905,22 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                 elif gpass > 1:
                     result['tmp_%s_' % p + str(elec)] = numpy.vstack(result['tmp_%s_' % p + str(elec)])
 
+        # B2
+        if comm.rank == 0:
+            print_and_log([
+                f"[{comm.rank}/{comm.size}]: B2 arrived {gpass}..."],
+                'debug',
+                logger,
+                display=False
+            )
         comm.Barrier()
+        if comm.rank == 0:
+            print_and_log([
+                f"[{comm.rank}/{comm.size}]: B2 arrived {gpass}..."],
+                'debug',
+                logger,
+                display=False
+            )
         sys.stderr.flush()
 
         lines = [
@@ -908,31 +937,30 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
         if ((smart_search and (gpass == 0)) or (not smart_search and (gpass == 1))) and nb_elements == 0:
             if comm.rank == 0:
                 print_and_log(['No waveforms found! Are the data properly loaded??'], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
 
         if nb_elements == 0:
             gpass = nb_repeats
 
-        if comm.rank == 0:
-            if gpass != 1:
-                print_and_log(["Found %d spikes over %d requested" % (nb_elements, nb_total)], 'default', logger)
-                if nb_elements == 0:
-                    print_and_log(["No more spikes in the recording, stop searching"], 'info', logger)
+        if gpass != 1:
+            print_and_log(["Node %d found %d spikes over %d requested" % (comm.rank, nb_elements, nb_total)], 'default', logger)
+            if nb_elements == 0:
+                print_and_log(["No more spikes in the recording, stop searching"], 'info', logger)
+        else:
+            if isolation:
+                lines = [
+                    "Node %d found %d isolated spikes over %d requested (%d rejected)"
+                    % (comm.rank, nb_elements, nb_total, nb_rejected)
+                ]
+                print_and_log(lines, 'default', logger)
             else:
-                if isolation:
-                    lines = [
-                        "Found %d isolated spikes over %d requested (%d rejected)"
-                        % (nb_elements, nb_total, nb_rejected)
-                    ]
-                    print_and_log(lines, 'default', logger)
-                else:
-                    lines = [
-                        "Found %d spikes over %d requested (%d rejected)"
-                        % (nb_elements, nb_total, nb_rejected)
-                    ]
-                    print_and_log(lines, 'default', logger)
-                if nb_elements < 0.2 * nb_total:
-                    few_elts = True
+                lines = [
+                    "Node %d found %d spikes over %d requested (%d rejected)"
+                    % (comm.rank, nb_elements, nb_total, nb_rejected)
+                ]
+                print_and_log(lines, 'default', logger)
+            if nb_elements < 0.2 * nb_total:
+                few_elts = True
 
         # CLUSTERING: once we have been through enough chunks (we don't need all of them),
         # we run a clustering for each electrode.
@@ -1015,7 +1043,7 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
 
         if (comm.rank == 0) and gpass == nb_repeats:
             print_and_log(["Running density-based clustering..."], 'default', logger)
-            to_explore = get_tqdm_progressbar(params, to_explore)
+            to_explore = get_tqdm_progressbar(params, to_explore, desc="density-based clustering")
 
         for ielec in to_explore:
 
@@ -1315,7 +1343,22 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
     except OSError:
         pass
 
+    # B3
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B3 arrived..."],
+            'debug',
+            logger,
+            display=False
+        )
     comm.Barrier()
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B3 arrived..."],
+            'debug',
+            logger,
+            display=False
+        )
 
     # gdata = gather_array(numpy.array([local_hits], dtype=numpy.float32), comm, 0)
     gdata2 = gather_array(numpy.array([local_mergings], dtype=numpy.float32), comm, 0)
@@ -1346,416 +1389,429 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
     temp_data = [numpy.zeros(0, dtype=numpy.float32)]
     templates_to_remove = [numpy.empty(0, dtype=numpy.int32)]
 
-    if extraction in ['median-raw', 'mean-raw']:
+    if extraction not in ['median-raw', 'mean-raw']:
+        raise ValueError("Unexpected value %s" % extraction)
 
-        total_nb_clusters = int(comm.bcast(numpy.array([int(numpy.sum(gdata3))], dtype=numpy.int32), root=0)[0])
-        offsets = numpy.zeros(comm.size, dtype=numpy.int32)
-        for i in range(comm.size-1):
-            offsets[i + 1] = comm.bcast(numpy.array([local_nb_clusters], dtype=numpy.int32), root=i)
-        node_pad = numpy.sum(offsets[:comm.rank+1])
+    total_nb_clusters = int(comm.bcast(numpy.array([int(numpy.sum(gdata3))], dtype=numpy.int32), root=0)[0])
+    offsets = numpy.zeros(comm.size, dtype=numpy.int32)
+    for i in range(comm.size-1):
+        offsets[i + 1] = comm.bcast(numpy.array([local_nb_clusters], dtype=numpy.int32), root=i)
+    node_pad = numpy.sum(offsets[:comm.rank+1])
 
-        if parallel_hdf5:
-            hfile = h5py.File(file_out_suff + '.templates.hdf5', 'w', driver='mpio', comm=comm, libver='earliest')
-            norms = hfile.create_dataset('norms', shape=(2 * total_nb_clusters, ), dtype=numpy.float32, chunks=True)
-            electrodes = hfile.create_dataset('electrodes', shape=(total_nb_clusters, ), dtype=numpy.int32, chunks=True)
-            local_clusters = hfile.create_dataset('local_clusters', shape=(total_nb_clusters,), dtype=numpy.int32, chunks=True)
-            if not fixed_amplitudes:
-                amps_lims = hfile.create_dataset('limits', shape=(total_nb_clusters, nb_amp_times, 2), dtype=numpy.float32, chunks=True)
-            else:
-                amps_lims = hfile.create_dataset('limits', shape=(total_nb_clusters, 2), dtype=numpy.float32, chunks=True)
-            supports = hfile.create_dataset('supports', shape=(total_nb_clusters, n_e), dtype=bool, chunks=True)
-            g_count = node_pad
-            g_offset = total_nb_clusters
+    if parallel_hdf5:
+        hfile = h5py.File(file_out_suff + '.templates.hdf5', 'w', driver='mpio', comm=comm, libver='earliest')
+        norms = hfile.create_dataset('norms', shape=(2 * total_nb_clusters, ), dtype=numpy.float32, chunks=True)
+        electrodes = hfile.create_dataset('electrodes', shape=(total_nb_clusters, ), dtype=numpy.int32, chunks=True)
+        local_clusters = hfile.create_dataset('local_clusters', shape=(total_nb_clusters,), dtype=numpy.int32, chunks=True)
+        if not fixed_amplitudes:
+            amps_lims = hfile.create_dataset('limits', shape=(total_nb_clusters, nb_amp_times, 2), dtype=numpy.float32, chunks=True)
         else:
-            hfile = h5py.File(file_out_suff + '.templates-%d.hdf5' % comm.rank, 'w', libver='earliest')
-            electrodes = hfile.create_dataset('electrodes', shape=(local_nb_clusters, ), dtype=numpy.int32, chunks=True)
-            local_clusters = hfile.create_dataset('local_clusters', shape=(local_nb_clusters,), dtype=numpy.int32, chunks=True)
-            norms = hfile.create_dataset('norms', shape=(2*local_nb_clusters, ), dtype=numpy.float32, chunks=True)
-            if not fixed_amplitudes:
-                amps_lims = hfile.create_dataset('limits', shape=(local_nb_clusters, nb_amp_times, 2), dtype=numpy.float32, chunks=True)
+            amps_lims = hfile.create_dataset('limits', shape=(total_nb_clusters, 2), dtype=numpy.float32, chunks=True)
+        supports = hfile.create_dataset('supports', shape=(total_nb_clusters, n_e), dtype=bool, chunks=True)
+        g_count = node_pad
+        g_offset = total_nb_clusters
+    else:
+        hfile = h5py.File(file_out_suff + '.templates-%d.hdf5' % comm.rank, 'w', libver='earliest')
+        electrodes = hfile.create_dataset('electrodes', shape=(local_nb_clusters, ), dtype=numpy.int32, chunks=True)
+        local_clusters = hfile.create_dataset('local_clusters', shape=(local_nb_clusters,), dtype=numpy.int32, chunks=True)
+        norms = hfile.create_dataset('norms', shape=(2*local_nb_clusters, ), dtype=numpy.float32, chunks=True)
+        if not fixed_amplitudes:
+            amps_lims = hfile.create_dataset('limits', shape=(local_nb_clusters, nb_amp_times, 2), dtype=numpy.float32, chunks=True)
+        else:
+            amps_lims = hfile.create_dataset('limits', shape=(local_nb_clusters, 2), dtype=numpy.float32, chunks=True)
+        supports = hfile.create_dataset('supports', shape=(local_nb_clusters, n_e), dtype=bool, chunks=True)
+        g_count = 0
+        g_offset = local_nb_clusters
+
+    comm.Barrier()
+    cfile = h5py.File(file_out_suff + '.clusters-%d.hdf5' % comm.rank, 'w', libver='earliest')
+    count_templates = node_pad
+
+    data_file.close()
+
+    to_explore = list(range(comm.rank, n_e, comm.size))
+
+    if comm.rank == 0:
+        to_explore = get_tqdm_progressbar(params, to_explore, desc="extract template")
+
+    for ielec in to_explore:
+
+        nb_dim_kept = numpy.inf
+        for p in search_peaks:
+            nb_dim_kept = min(nb_dim_kept, result['pca_%s_' % p + str(ielec)].shape[1])
+
+        result['data_' + str(ielec)] = [numpy.empty((0, nb_dim_kept), dtype=numpy.float32)]
+        if debug:
+            result['rho_' + str(ielec)] = [numpy.empty(0, dtype=numpy.float32)]
+            result['delta_' + str(ielec)] = [numpy.empty(0, dtype=numpy.float32)]
+        
+        shank_nodes, _ = get_nodes_and_edges(params, shank_with=nodes[ielec])
+        indices = inv_nodes[shank_nodes]
+
+        for p in search_peaks:
+
+            mask = numpy.where(cluster_results[p][ielec]['groups'] > -1)[0]
+
+            if p == 'pos':
+                myslice2 = numpy.where(result['peaks_' + str(ielec)] == 0)[0]
+            elif p == 'neg':
+                myslice2 = numpy.where(result['peaks_' + str(ielec)] == 1)[0]
             else:
-                amps_lims = hfile.create_dataset('limits', shape=(local_nb_clusters, 2), dtype=numpy.float32, chunks=True)
-            supports = hfile.create_dataset('supports', shape=(local_nb_clusters, n_e), dtype=bool, chunks=True)
-            g_count = 0
-            g_offset = local_nb_clusters
+                raise ValueError("unexpected value")
 
-        comm.Barrier()
-        cfile = h5py.File(file_out_suff + '.clusters-%d.hdf5' % comm.rank, 'w', libver='earliest')
-        count_templates = node_pad
+            loc_times = numpy.take(result['times_' + str(ielec)], myslice2)
+            loc_clusters = numpy.take(cluster_results[p][ielec]['groups'], mask)
 
-        data_file.close()
+            for group in numpy.unique(loc_clusters):
 
-        to_explore = list(range(comm.rank, n_e, comm.size))
+                electrodes[g_count] = ielec
+                local_clusters[g_count] = group
 
-        if comm.rank == 0:
-            to_explore = get_tqdm_progressbar(params, to_explore)
+                myslice = numpy.where(cluster_results[p][ielec]['groups'] == group)[0]
 
-        for ielec in to_explore:
-
-            nb_dim_kept = numpy.inf
-            for p in search_peaks:
-                nb_dim_kept = min(nb_dim_kept, result['pca_%s_' % p + str(ielec)].shape[1])
-
-            result['data_' + str(ielec)] = [numpy.empty((0, nb_dim_kept), dtype=numpy.float32)]
-            if debug:
-                result['rho_' + str(ielec)] = [numpy.empty(0, dtype=numpy.float32)]
-                result['delta_' + str(ielec)] = [numpy.empty(0, dtype=numpy.float32)]
-            
-            shank_nodes, _ = get_nodes_and_edges(params, shank_with=nodes[ielec])
-            indices = inv_nodes[shank_nodes]
-
-            for p in search_peaks:
-
-                mask = numpy.where(cluster_results[p][ielec]['groups'] > -1)[0]
-
-                if p == 'pos':
-                    myslice2 = numpy.where(result['peaks_' + str(ielec)] == 0)[0]
-                elif p == 'neg':
-                    myslice2 = numpy.where(result['peaks_' + str(ielec)] == 1)[0]
+                if fine_amplitude:
+                    data = result['sub_%s_' % p + str(ielec)][myslice]
+                    centroid = numpy.median(data, 0)
+                    centroid = centroid.reshape(1, len(centroid))
+                    distances = \
+                        scipy.spatial.distance.cdist(data, centroid, 'euclidean').flatten()
+                    labels_i = myslice[numpy.argsort(distances)[:nb_snippets]]
                 else:
-                    raise ValueError("unexpected value")
+                    labels_i = numpy.random.permutation(myslice)[:nb_snippets]
 
-                loc_times = numpy.take(result['times_' + str(ielec)], myslice2)
-                loc_clusters = numpy.take(cluster_results[p][ielec]['groups'], mask)
-    
-                for group in numpy.unique(loc_clusters):
+                times_i = numpy.take(loc_times, labels_i)
+                labels_i = numpy.ones(len(times_i), dtype=numpy.int32)
 
-                    electrodes[g_count] = ielec
-                    local_clusters[g_count] = group
+                sub_data, sub_data_raw = io.get_stas(params, times_i, labels_i, ielec, neighs=indices, nodes=nodes, pos=p, raw_snippets=True)
 
-                    myslice = numpy.where(cluster_results[p][ielec]['groups'] == group)[0]
+                if extraction == 'median-raw':
+                    first_component = numpy.median(sub_data, 0)
+                elif extraction == 'mean-raw':                
+                    first_component = numpy.mean(sub_data, 0)
+                else:
+                    raise ValueError("unexpected value %s" % extraction)
+
+                if use_savgol and savgol_window > 3:
+                    min_value = first_component[elec_positions_shanks[ielec], template_shift]
+                    tmp_fast = scipy.signal.savgol_filter(first_component, savgol_window, 3, axis=1)
+                    tmp_slow = scipy.signal.savgol_filter(first_component, 3 * savgol_window, 3, axis=1)
+                    first_component = centered_filter * tmp_fast + (1 - centered_filter) * tmp_slow
+                    first_component[elec_positions_shanks[ielec], template_shift] = min_value
+
+                if comp_templates:
+                    local_stds = numpy.std(first_component, 1)
+                    to_delete = numpy.where(local_stds / stds[indices] < sparsify)[0]
+                else:
+                    to_delete = numpy.empty(0)  # i.e. no channel to silence
+
+                first_component[to_delete, :] = 0
+                sub_data_raw[:, to_delete, :] = 0
+
+                if p == 'neg':
+                    tmpidx = numpy.unravel_index(first_component.argmin(), first_component.shape)
+                    ratio = -thresholds[indices[tmpidx[0]]] / first_component[tmpidx[0]].min()
+                elif p == 'pos':
+                    tmpidx = numpy.unravel_index(first_component.argmax(), first_component.shape)
+                    ratio = thresholds[indices[tmpidx[0]]] / first_component[tmpidx[0]].max()
+                else:
+                    raise ValueError("Unexpected value %s" % p)
+
+                shift = template_shift - tmpidx[1]
+
+                templates = numpy.zeros((n_e, n_t), dtype=numpy.float32)
+                sub_data_aligned = numpy.zeros(sub_data_raw.shape, dtype=numpy.float32)
+                if shift > 0:
+                    templates[indices, shift:] = first_component[:, :-shift]
+                    sub_data_aligned[:, :, shift:] = sub_data_raw[:, :, :-shift]
+                elif shift < 0:
+                    templates[indices, :shift] = first_component[:, -shift:]
+                    sub_data_aligned[:, :, :shift] = sub_data_raw[:, :, -shift:]
+                else:
+                    templates[indices, :] = first_component
+                    sub_data_aligned = sub_data_raw
+
+                x, y, z = sub_data_aligned.shape
+                sub_data_flat_raw = sub_data_aligned.reshape(x, y * z)
+
+                normed_template = templates[indices].flatten()/numpy.sqrt(numpy.sum(templates ** 2) / n_scalar)
+                amplitudes = sub_data_flat_raw.dot(normed_template)
+                residuals = sub_data_flat_raw - amplitudes[:, numpy.newaxis] * normed_template/n_scalar
+
+                residuals = residuals.reshape(x, y, z)
+                channel_mads = numpy.median(numpy.abs(residuals - numpy.median(residuals, 0)), 0)
+                channel_mads[to_delete, :] = 0
+                frac_high_variances = numpy.max(channel_mads.max(1)/mads[indices])
+
+                is_noise = (len(to_delete) / len(indices) >= sparsity_limit) or \
+                           ((1 / ratio) < noise_thresh) or \
+                           (frac_high_variances > ignored_mixtures)
+
+                if debug_plots not in ['None', '']:
+                    save     = [plot_path, '%s_%d_t%d.%s' %(p, ielec, count_templates, make_plots)]
+                    plot.variance_template(first_component, channel_mads, mads[indices], save=save)
+
+                if is_noise:
+                    templates_to_remove.append(numpy.array([count_templates], dtype='int32'))
+                else:
+                    templates = templates.ravel()
+                    dx = templates.nonzero()[0].astype(numpy.uint32)
+                    temp_x.append(dx)
+                    temp_y.append(count_templates * numpy.ones(len(dx), dtype=numpy.uint32))
+                    temp_data.append(templates[dx])
+
+                    to_keep = numpy.delete(indices, to_delete)
+                    supports[g_count, to_keep] = True
+                    norms[g_count] = numpy.sqrt(numpy.sum(templates.ravel() ** 2) / n_scalar)
 
                     if fine_amplitude:
-                        data = result['sub_%s_' % p + str(ielec)][myslice]
-                        centroid = numpy.median(data, 0)
-                        centroid = centroid.reshape(1, len(centroid))
-                        distances = \
-                            scipy.spatial.distance.cdist(data, centroid, 'euclidean').flatten()
-                        labels_i = myslice[numpy.argsort(distances)[:nb_snippets]]
+                        amp_min = 0.75
+                        amp_max = 1.25
                     else:
-                        labels_i = numpy.random.permutation(myslice)[:nb_snippets]
+                        x, y, z = sub_data_raw.shape
+                        sub_data_raw[:, to_delete, :] = 0
+                        sub_data_flat_raw = sub_data_raw.reshape(x, y * z)
+                        first_flat = first_component.reshape(y * z, 1)
+                        amplitudes = numpy.dot(sub_data_flat_raw, first_flat)
+                        amplitudes /= numpy.sum(first_flat ** 2)
+                        center = 1 #numpy.median(amplitudes)  # TODO remove this line?
+                        variation = numpy.median(numpy.abs(amplitudes - center))
+                        distance = \
+                        min(0, numpy.abs(first_component[tmpidx[0], tmpidx[1]]) - thresholds[indices[tmpidx[0]]])
+                        noise_limit = max([0, distance + mads[indices[tmpidx[0]]]])
+                        amp_min = center - min([dispersion[0] * variation, noise_limit])
+                        amp_max = center + min([dispersion[1] * variation, mads[indices[tmpidx[0]]]])
 
-                    times_i = numpy.take(loc_times, labels_i)
-                    labels_i = numpy.ones(len(times_i), dtype=numpy.int32)
-
-                    sub_data, sub_data_raw = io.get_stas(params, times_i, labels_i, ielec, neighs=indices, nodes=nodes, pos=p, raw_snippets=True)
-
-                    if extraction == 'median-raw':
-                        first_component = numpy.median(sub_data, 0)
-                    elif extraction == 'mean-raw':                
-                        first_component = numpy.mean(sub_data, 0)
+                    if not fixed_amplitudes:
+                        data = numpy.ones((nb_amp_times, 2), dtype=numpy.float32)
+                        data[:, 0] = 0.5
+                        data[:, 1] = 1.5
+                        amps_lims[g_count] = data
                     else:
-                        raise ValueError("unexpected value %s" % extraction)
+                        amps_lims[g_count] = [amp_min, amp_max]
 
-                    if use_savgol and savgol_window > 3:
-                        min_value = first_component[elec_positions_shanks[ielec], template_shift]
-                        tmp_fast = scipy.signal.savgol_filter(first_component, savgol_window, 3, axis=1)
-                        tmp_slow = scipy.signal.savgol_filter(first_component, 3 * savgol_window, 3, axis=1)
-                        first_component = centered_filter * tmp_fast + (1 - centered_filter) * tmp_slow
-                        first_component[elec_positions_shanks[ielec], template_shift] = min_value
+                    offset = total_nb_clusters + count_templates
+                    sub_templates = numpy.zeros((n_e, n_t), dtype=numpy.float32)
 
-                    if comp_templates:
-                        local_stds = numpy.std(first_component, 1)
-                        to_delete = numpy.where(local_stds / stds[indices] < sparsify)[0]
-                    else:
-                        to_delete = numpy.empty(0)  # i.e. no channel to silence
+                    if two_components:
+                        ortho_templates = numpy.median(residuals, 0).reshape(len(indices), n_t)
+                        sub_templates[indices] = ortho_templates
 
-                    first_component[to_delete, :] = 0
-                    sub_data_raw[:, to_delete, :] = 0
+                    sub_templates = sub_templates.ravel()
+                    dx = sub_templates.nonzero()[0].astype(numpy.uint32)
+                    temp_x.append(dx)
+                    temp_y.append(offset * numpy.ones(len(dx), dtype=numpy.uint32))
+                    temp_data.append(sub_templates[dx])
 
-                    if p == 'neg':
-                        tmpidx = numpy.unravel_index(first_component.argmin(), first_component.shape)
-                        ratio = -thresholds[indices[tmpidx[0]]] / first_component[tmpidx[0]].min()
-                    elif p == 'pos':
-                        tmpidx = numpy.unravel_index(first_component.argmax(), first_component.shape)
-                        ratio = thresholds[indices[tmpidx[0]]] / first_component[tmpidx[0]].max()
-                    else:
-                        raise ValueError("Unexpected value %s" % p)
+                    norms[g_count + g_offset] = numpy.sqrt(numpy.sum(sub_templates.ravel() ** 2) / n_scalar)
 
-                    shift = template_shift - tmpidx[1]
+                count_templates += 1
+                g_count += 1
 
-                    templates = numpy.zeros((n_e, n_t), dtype=numpy.float32)
-                    sub_data_aligned = numpy.zeros(sub_data_raw.shape, dtype=numpy.float32)
-                    if shift > 0:
-                        templates[indices, shift:] = first_component[:, :-shift]
-                        sub_data_aligned[:, :, shift:] = sub_data_raw[:, :, :-shift]
-                    elif shift < 0:
-                        templates[indices, :shift] = first_component[:, -shift:]
-                        sub_data_aligned[:, :, :shift] = sub_data_raw[:, :, -shift:]
-                    else:
-                        templates[indices, :] = first_component
-                        sub_data_aligned = sub_data_raw
+            # TODO remove the following commented lines?
+            # # Sanity plots of the waveforms.
+            # if make_plots not in ['None', '']:
+            #     if n_data > 1:
+            #         save = [plot_path, '%s_%d.%s' % (p, ielec, make_plots)]
+            #         idx = numpy.where(sindices == ielec)[0][0]
+            #         sub_data = numpy.take(data, idx, axis=2)
+            #         nb_temp = cluster_results[p][ielec]['n_clus']
+            #         vidx = numpy.where((temp_y[-1] >= loc_pad) & (temp_y[-1] < loc_pad + nb_temp))[0]
+            #         sub_tmp = scipy.sparse.csr_matrix(
+            #             (temp_data[-1][vidx], (temp_x[-1][vidx], temp_y[-1][vidx] - loc_pad)),
+            #             shape=(n_scalar, nb_temp)
+            #         )
+            #         sub_tmp = sub_tmp.toarray().reshape(n_e, n_t, nb_temp)
+            #         sub_tmp = sub_tmp[ielec, :, :]
+            #         plot.view_waveforms_clusters(
+            #             numpy.dot(sub_data, basis['rec_%s' % p]), cluster_results[p][ielec]['groups'],
+            #             thresholds[ielec], sub_tmp, numpy.array(myamps), save=save
+            #         )
 
-                    x, y, z = sub_data_aligned.shape
-                    sub_data_flat_raw = sub_data_aligned.reshape(x, y * z)
+            nb_dim_found = result['sub_%s_' % p + str(ielec)].shape[1]
 
-                    normed_template = templates[indices].flatten()/numpy.sqrt(numpy.sum(templates ** 2) / n_scalar)
-                    amplitudes = sub_data_flat_raw.dot(normed_template)
-                    residuals = sub_data_flat_raw - amplitudes[:, numpy.newaxis] * normed_template/n_scalar
-
-                    residuals = residuals.reshape(x, y, z)
-                    channel_mads = numpy.median(numpy.abs(residuals - numpy.median(residuals, 0)), 0)
-                    channel_mads[to_delete, :] = 0
-                    frac_high_variances = numpy.max(channel_mads.max(1)/mads[indices])
-
-                    is_noise = (len(to_delete) / len(indices) >= sparsity_limit) or \
-                               ((1 / ratio) < noise_thresh) or \
-                               (frac_high_variances > ignored_mixtures)
-
-                    if debug_plots not in ['None', '']:
-                        save     = [plot_path, '%s_%d_t%d.%s' %(p, ielec, count_templates, make_plots)]
-                        plot.variance_template(first_component, channel_mads, mads[indices], save=save)
-
-                    if is_noise:
-                        templates_to_remove.append(numpy.array([count_templates], dtype='int32'))
-                    else:
-                        templates = templates.ravel()
-                        dx = templates.nonzero()[0].astype(numpy.uint32)
-                        temp_x.append(dx)
-                        temp_y.append(count_templates * numpy.ones(len(dx), dtype=numpy.uint32))
-                        temp_data.append(templates[dx])
-
-                        to_keep = numpy.delete(indices, to_delete)
-                        supports[g_count, to_keep] = True
-                        norms[g_count] = numpy.sqrt(numpy.sum(templates.ravel() ** 2) / n_scalar)
-
-                        if fine_amplitude:
-                            amp_min = 0.75
-                            amp_max = 1.25
-                        else:
-                            x, y, z = sub_data_raw.shape
-                            sub_data_raw[:, to_delete, :] = 0
-                            sub_data_flat_raw = sub_data_raw.reshape(x, y * z)
-                            first_flat = first_component.reshape(y * z, 1)
-                            amplitudes = numpy.dot(sub_data_flat_raw, first_flat)
-                            amplitudes /= numpy.sum(first_flat ** 2)
-                            center = 1 #numpy.median(amplitudes)  # TODO remove this line?
-                            variation = numpy.median(numpy.abs(amplitudes - center))
-                            distance = \
-                            min(0, numpy.abs(first_component[tmpidx[0], tmpidx[1]]) - thresholds[indices[tmpidx[0]]])
-                            noise_limit = max([0, distance + mads[indices[tmpidx[0]]]])
-                            amp_min = center - min([dispersion[0] * variation, noise_limit])
-                            amp_max = center + min([dispersion[1] * variation, mads[indices[tmpidx[0]]]])
-
-                        if not fixed_amplitudes:
-                            data = numpy.ones((nb_amp_times, 2), dtype=numpy.float32)
-                            data[:, 0] = 0.5
-                            data[:, 1] = 1.5
-                            amps_lims[g_count] = data
-                        else:
-                            amps_lims[g_count] = [amp_min, amp_max]
-
-                        offset = total_nb_clusters + count_templates
-                        sub_templates = numpy.zeros((n_e, n_t), dtype=numpy.float32)
-
-                        if two_components:
-                            ortho_templates = numpy.median(residuals, 0).reshape(len(indices), n_t)
-                            sub_templates[indices] = ortho_templates
-
-                        sub_templates = sub_templates.ravel()
-                        dx = sub_templates.nonzero()[0].astype(numpy.uint32)
-                        temp_x.append(dx)
-                        temp_y.append(offset * numpy.ones(len(dx), dtype=numpy.uint32))
-                        temp_data.append(sub_templates[dx])
-
-                        norms[g_count + g_offset] = numpy.sqrt(numpy.sum(sub_templates.ravel() ** 2) / n_scalar)
-
-                    count_templates += 1
-                    g_count += 1
-
-                # TODO remove the following commented lines?
-                # # Sanity plots of the waveforms.
-                # if make_plots not in ['None', '']:
-                #     if n_data > 1:
-                #         save = [plot_path, '%s_%d.%s' % (p, ielec, make_plots)]
-                #         idx = numpy.where(sindices == ielec)[0][0]
-                #         sub_data = numpy.take(data, idx, axis=2)
-                #         nb_temp = cluster_results[p][ielec]['n_clus']
-                #         vidx = numpy.where((temp_y[-1] >= loc_pad) & (temp_y[-1] < loc_pad + nb_temp))[0]
-                #         sub_tmp = scipy.sparse.csr_matrix(
-                #             (temp_data[-1][vidx], (temp_x[-1][vidx], temp_y[-1][vidx] - loc_pad)),
-                #             shape=(n_scalar, nb_temp)
-                #         )
-                #         sub_tmp = sub_tmp.toarray().reshape(n_e, n_t, nb_temp)
-                #         sub_tmp = sub_tmp[ielec, :, :]
-                #         plot.view_waveforms_clusters(
-                #             numpy.dot(sub_data, basis['rec_%s' % p]), cluster_results[p][ielec]['groups'],
-                #             thresholds[ielec], sub_tmp, numpy.array(myamps), save=save
-                #         )
-
-                nb_dim_found = result['sub_%s_' % p + str(ielec)].shape[1]
-
-                if nb_dim_kept == nb_dim_found:
-                    result['data_' + str(ielec)].append(result['sub_%s_' % p + str(ielec)])
-                else:
-                    sliced_data = result['sub_%s_' % p + str(ielec)][:, :nb_dim_kept]
-                    result['data_' + str(ielec)].append(sliced_data)
-                if len(result['clusters_' + str(ielec)]) > 0:
-                    max_offset = numpy.int32(numpy.max(result['clusters_' + str(ielec)]) + 1)
-                else:
-                    max_offset = numpy.int32(0)
-
-                if debug:
-                    result['rho_' + str(ielec)].append(result['rho_%s_' % p + str(ielec)])
-                    result['delta_' + str(ielec)].append(result['delta_%s_' % p + str(ielec)])
-
-                mask = result['clusters_%s_' % p + str(ielec)] > -1
-                result['clusters_%s_' % p + str(ielec)][mask] += max_offset
-                result['clusters_' + str(ielec)] = numpy.concatenate(
-                    (result['clusters_' + str(ielec)],
-                     result['clusters_%s_' % p + str(ielec)])
-                )
-
-            # Final concatenations (for efficiency).
-            result['data_' + str(ielec)] = numpy.concatenate(result['data_' + str(ielec)])
-            if debug:
-                result['rho_' + str(ielec)] = numpy.concatenate(result['rho_' + str(ielec)])
-                result['delta_' + str(ielec)] = numpy.concatenate(result['delta_' + str(ielec)])
-
-            all_indices = [numpy.empty(0, dtype=numpy.uint32)]
-            for p in search_peaks:
-                if p == 'pos':
-                    target = 0
-                elif p == 'neg':
-                    target = 1
-                else:
-                    raise ValueError("unexpected value")
-                indices_ = numpy.where(result['peaks_' + str(ielec)] == target)[0]
-                all_indices.append(indices_)
-            all_indices = numpy.concatenate(all_indices)  # i.e. concatenate once for efficiency
-
-            result['times_' + str(ielec)] = result['times_' + str(ielec)][all_indices]
-            result['peaks_' + str(ielec)] = result['peaks_' + str(ielec)][all_indices]
-
-            io.write_datasets(cfile, to_write, result, ielec, compression=hdf5_compress)
-
-        # At the end we should have a templates variable to store.
-        cfile.flush()
-        cfile.close()
-        del result, amps_lims
-        sys.stderr.flush()
-
-        temp_x = numpy.concatenate(temp_x)
-        temp_y = numpy.concatenate(temp_y)
-        temp_data = numpy.concatenate(temp_data)
-
-        comm.Barrier()
-
-        templates_to_remove = np.concatenate(templates_to_remove)  # i.e. concatenate once for efficiency
-        templates_to_remove = all_gather_array(templates_to_remove, comm, 0, dtype='int32')
-
-        # We need to gather the sparse arrays.
-        temp_x = gather_array(temp_x, comm, dtype='uint32', compress=blosc_compress)
-        temp_y = gather_array(temp_y, comm, dtype='uint32', compress=blosc_compress)
-        temp_data = gather_array(temp_data, comm)
-
-        if parallel_hdf5:
-            if comm.rank == 0:
-                rs = [
-                    h5py.File(file_out_suff + '.clusters-%d.hdf5' % i, 'r', libver='earliest')
-                    for i in range(comm.size)
-                ]
-                cfile = h5py.File(file_out_suff + '.clusters.hdf5', 'w', libver='earliest')
-                io.write_datasets(
-                    cfile,
-                    ['electrodes', 'local_clusters'],
-                    {'electrodes': electrodes[:], 'local_clusters': local_clusters[:]},
-                )
-                for i in range(comm.size):
-                    for j in range(i, n_e, comm.size):
-                        io.write_datasets(cfile, to_write, rs[i], j, compression=hdf5_compress)
-                    rs[i].close()
-                    os.remove(file_out_suff + '.clusters-%d.hdf5' % i)
-                cfile.flush()
-                cfile.close()
-            hfile.flush()
-            hfile.close()
-        else:
-            hfile.flush()
-            hfile.close()
-            comm.Barrier()
-            if comm.rank == 0:
-                ts = [
-                    h5py.File(file_out_suff + '.templates-%d.hdf5' % i, 'r', libver='earliest')
-                    for i in range(comm.size)
-                ]
-                rs = [
-                    h5py.File(file_out_suff + '.clusters-%d.hdf5' % i, 'r', libver='earliest')
-                    for i in range(comm.size)
-                ]
-                hfile = h5py.File(file_out_suff + '.templates.hdf5', 'w', libver='earliest')
-                cfile = h5py.File(file_out_suff + '.clusters.hdf5', 'w', libver='earliest')
-                electrodes = hfile.create_dataset(
-                    'electrodes', shape=(total_nb_clusters, ), dtype=numpy.int32, chunks=True
-                )
-                local_clusters = hfile.create_dataset(
-                    'local_clusters', shape=(total_nb_clusters,), dtype=numpy.int32, chunks=True
-                )
-                norms = hfile.create_dataset(
-                    'norms', shape=(2 * total_nb_clusters, ), dtype=numpy.float32, chunks=True
-                )
-                if not fixed_amplitudes:
-                    amplitudes = hfile.create_dataset(
-                        'limits', shape=(total_nb_clusters, nb_amp_times, 2), dtype=numpy.float32, chunks=True
-                    )
-                else:
-                    amplitudes = hfile.create_dataset(
-                        'limits', shape=(total_nb_clusters, 2), dtype=numpy.float32, chunks=True
-                    )
-                supports = hfile.create_dataset(
-                    'supports', shape=(total_nb_clusters, n_e), dtype=bool, chunks=True
-                )
-                count = 0
-                for i in range(comm.size):
-                    loc_norms = ts[i].get('norms')
-                    middle = len(loc_norms) // 2
-                    norms[count:count+middle] = loc_norms[:middle]
-                    norms[total_nb_clusters+count:total_nb_clusters+count+middle] = loc_norms[middle:]
-                    electrodes[count:count+middle] = ts[i].get('electrodes')
-                    local_clusters[count:count+middle] = ts[i].get('local_clusters')
-                    amplitudes[count:count+middle] = ts[i].get('limits')
-                    supports[count:count+middle] = ts[i].get('supports')
-                    count += middle
-                    for j in range(i, n_e, comm.size):
-                        io.write_datasets(cfile, to_write, rs[i], j, compression=hdf5_compress)
-                    ts[i].close()
-                    rs[i].close()
-                    os.remove(file_out_suff + '.templates-%d.hdf5' % i)
-                    os.remove(file_out_suff + '.clusters-%d.hdf5' % i)
-                hfile.flush()  # we need to flush otherwise electrodes[:] refers to zeros and not the real values
-                io.write_datasets(
-                    cfile,
-                    ['electrodes', 'local_clusters'],
-                    {'electrodes': electrodes[:], 'local_clusters': local_clusters[:]},
-                )
-                cfile.flush()
-                hfile.close()
-                cfile.close()
-
-        if comm.rank == 0:
-            hfile = h5py.File(file_out_suff + '.templates.hdf5', 'r+', libver='earliest')
-            if hdf5_compress:
-                hfile.create_dataset('temp_x', data=temp_x, compression='gzip')
-                hfile.create_dataset('temp_y', data=temp_y, compression='gzip')
-                hfile.create_dataset('temp_data', data=temp_data, compression='gzip')
+            if nb_dim_kept == nb_dim_found:
+                result['data_' + str(ielec)].append(result['sub_%s_' % p + str(ielec)])
             else:
-                hfile.create_dataset('temp_x', data=temp_x)
-                hfile.create_dataset('temp_y', data=temp_y)
-                hfile.create_dataset('temp_data', data=temp_data)
-            hfile.create_dataset('temp_shape', data=numpy.array([n_e, n_t, 2 * total_nb_clusters], dtype=numpy.int32))
-            hfile.flush()
+                sliced_data = result['sub_%s_' % p + str(ielec)][:, :nb_dim_kept]
+                result['data_' + str(ielec)].append(sliced_data)
+            if len(result['clusters_' + str(ielec)]) > 0:
+                max_offset = numpy.int32(numpy.max(result['clusters_' + str(ielec)]) + 1)
+            else:
+                max_offset = numpy.int32(0)
+
+            if debug:
+                result['rho_' + str(ielec)].append(result['rho_%s_' % p + str(ielec)])
+                result['delta_' + str(ielec)].append(result['delta_%s_' % p + str(ielec)])
+
+            mask = result['clusters_%s_' % p + str(ielec)] > -1
+            result['clusters_%s_' % p + str(ielec)][mask] += max_offset
+            result['clusters_' + str(ielec)] = numpy.concatenate(
+                (result['clusters_' + str(ielec)],
+                 result['clusters_%s_' % p + str(ielec)])
+            )
+
+        # Final concatenations (for efficiency).
+        result['data_' + str(ielec)] = numpy.concatenate(result['data_' + str(ielec)])
+        if debug:
+            result['rho_' + str(ielec)] = numpy.concatenate(result['rho_' + str(ielec)])
+            result['delta_' + str(ielec)] = numpy.concatenate(result['delta_' + str(ielec)])
+
+        all_indices = [numpy.empty(0, dtype=numpy.uint32)]
+        for p in search_peaks:
+            if p == 'pos':
+                target = 0
+            elif p == 'neg':
+                target = 1
+            else:
+                raise ValueError("unexpected value")
+            indices_ = numpy.where(result['peaks_' + str(ielec)] == target)[0]
+            all_indices.append(indices_)
+        all_indices = numpy.concatenate(all_indices)  # i.e. concatenate once for efficiency
+
+        result['times_' + str(ielec)] = result['times_' + str(ielec)][all_indices]
+        result['peaks_' + str(ielec)] = result['peaks_' + str(ielec)][all_indices]
+
+        io.write_datasets(cfile, to_write, result, ielec, compression=hdf5_compress)
+
+    # At the end we should have a templates variable to store.
+    cfile.flush()
+    cfile.close()
+    del result, amps_lims
+    sys.stderr.flush()
+
+    temp_x = numpy.concatenate(temp_x)
+    temp_y = numpy.concatenate(temp_y)
+    temp_data = numpy.concatenate(temp_data)
+
+    comm.Barrier()
+
+    templates_to_remove = np.concatenate(templates_to_remove)  # i.e. concatenate once for efficiency
+    templates_to_remove = all_gather_array(templates_to_remove, comm, 0, dtype='int32')
+
+    # We need to gather the sparse arrays.
+    temp_x = gather_array(temp_x, comm, dtype='uint32', compress=blosc_compress)
+    temp_y = gather_array(temp_y, comm, dtype='uint32', compress=blosc_compress)
+    temp_data = gather_array(temp_data, comm)
+
+    if parallel_hdf5:
+        if comm.rank == 0:
+            rs = [
+                h5py.File(file_out_suff + '.clusters-%d.hdf5' % i, 'r', libver='earliest')
+                for i in range(comm.size)
+            ]
+            cfile = h5py.File(file_out_suff + '.clusters.hdf5', 'w', libver='earliest')
+            io.write_datasets(
+                cfile,
+                ['electrodes', 'local_clusters'],
+                {'electrodes': electrodes[:], 'local_clusters': local_clusters[:]},
+            )
+            for i in range(comm.size):
+                for j in range(i, n_e, comm.size):
+                    io.write_datasets(cfile, to_write, rs[i], j, compression=hdf5_compress)
+                rs[i].close()
+                os.remove(file_out_suff + '.clusters-%d.hdf5' % i)
+            cfile.flush()
+            cfile.close()
+        hfile.flush()
+        hfile.close()
+    else:
+        hfile.flush()
+        hfile.close()
+        comm.Barrier()
+        if comm.rank == 0:
+            ts = [
+                h5py.File(file_out_suff + '.templates-%d.hdf5' % i, 'r', libver='earliest')
+                for i in range(comm.size)
+            ]
+            rs = [
+                h5py.File(file_out_suff + '.clusters-%d.hdf5' % i, 'r', libver='earliest')
+                for i in range(comm.size)
+            ]
+            hfile = h5py.File(file_out_suff + '.templates.hdf5', 'w', libver='earliest')
+            cfile = h5py.File(file_out_suff + '.clusters.hdf5', 'w', libver='earliest')
+            electrodes = hfile.create_dataset(
+                'electrodes', shape=(total_nb_clusters, ), dtype=numpy.int32, chunks=True
+            )
+            local_clusters = hfile.create_dataset(
+                'local_clusters', shape=(total_nb_clusters,), dtype=numpy.int32, chunks=True
+            )
+            norms = hfile.create_dataset(
+                'norms', shape=(2 * total_nb_clusters, ), dtype=numpy.float32, chunks=True
+            )
+            if not fixed_amplitudes:
+                amplitudes = hfile.create_dataset(
+                    'limits', shape=(total_nb_clusters, nb_amp_times, 2), dtype=numpy.float32, chunks=True
+                )
+            else:
+                amplitudes = hfile.create_dataset(
+                    'limits', shape=(total_nb_clusters, 2), dtype=numpy.float32, chunks=True
+                )
+            supports = hfile.create_dataset(
+                'supports', shape=(total_nb_clusters, n_e), dtype=bool, chunks=True
+            )
+            count = 0
+            for i in range(comm.size):
+                loc_norms = ts[i].get('norms')
+                middle = len(loc_norms) // 2
+                norms[count:count+middle] = loc_norms[:middle]
+                norms[total_nb_clusters+count:total_nb_clusters+count+middle] = loc_norms[middle:]
+                electrodes[count:count+middle] = ts[i].get('electrodes')
+                local_clusters[count:count+middle] = ts[i].get('local_clusters')
+                amplitudes[count:count+middle] = ts[i].get('limits')
+                supports[count:count+middle] = ts[i].get('supports')
+                count += middle
+                for j in range(i, n_e, comm.size):
+                    io.write_datasets(cfile, to_write, rs[i], j, compression=hdf5_compress)
+                ts[i].close()
+                rs[i].close()
+                os.remove(file_out_suff + '.templates-%d.hdf5' % i)
+                os.remove(file_out_suff + '.clusters-%d.hdf5' % i)
+            hfile.flush()  # we need to flush otherwise electrodes[:] refers to zeros and not the real values
+            io.write_datasets(
+                cfile,
+                ['electrodes', 'local_clusters'],
+                {'electrodes': electrodes[:], 'local_clusters': local_clusters[:]},
+            )
+            cfile.flush()
             hfile.close()
+            cfile.close()
 
-    else:  # extraction not in ['median-raw', 'mean-raw']
+    if comm.rank == 0:
+        hfile = h5py.File(file_out_suff + '.templates.hdf5', 'r+', libver='earliest')
+        if hdf5_compress:
+            hfile.create_dataset('temp_x', data=temp_x, compression='gzip')
+            hfile.create_dataset('temp_y', data=temp_y, compression='gzip')
+            hfile.create_dataset('temp_data', data=temp_data, compression='gzip')
+        else:
+            hfile.create_dataset('temp_x', data=temp_x)
+            hfile.create_dataset('temp_y', data=temp_y)
+            hfile.create_dataset('temp_data', data=temp_data)
+        hfile.create_dataset('temp_shape', data=numpy.array([n_e, n_t, 2 * total_nb_clusters], dtype=numpy.int32))
+        hfile.flush()
+        hfile.close()
 
-        raise ValueError("Unexpected value %s" % extraction)
 
     del temp_x, temp_y, temp_data
 
     import gc
     gc.collect()
 
+    # B4
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B4 arrived..."],
+            'debug',
+            logger,
+            display=False
+        )
     comm.Barrier()
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B4 passed"],
+            'debug',
+            logger,
+            display=False
+        )
 
     if len(templates_to_remove) > 0:
 
@@ -1775,6 +1831,14 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
         del result
 
     gc.collect()
+    # B5
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B5... "],
+            'debug',
+            logger,
+            display=False
+        )
     comm.Barrier()
 
     total_nb_clusters = int(io.load_data(params, 'nb_templates') // 2)
@@ -1795,6 +1859,14 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             print_and_log(["Merging similar templates..."], 'default', logger)
 
         merged1 = algo.merging_cc(params, nb_cpu=nb_cpu, nb_gpu=nb_gpu, use_gpu=use_gpu)
+        # B6.1
+        if comm.rank == 0:
+            print_and_log([
+                f"[{comm.rank}/{comm.size}]: B6.1... "],
+                'debug',
+                logger,
+                display=False
+            )
         comm.Barrier()
         gc.collect()
 
@@ -1804,6 +1876,14 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             merged2 = algo.delete_mixtures(params, nb_cpu=nb_cpu, nb_gpu=nb_gpu, use_gpu=use_gpu, debug_plots=debug_plots)
         else:
             merged2 = [0, 0]
+        # B6.2
+        if comm.rank == 0:
+            print_and_log([
+                f"[{comm.rank}/{comm.size}]: B6.2... "],
+                'debug',
+                logger,
+                display=False
+            )
         comm.Barrier()
         gc.collect()
     else:
@@ -1832,6 +1912,14 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             params, nb_cpu=nb_cpu, nb_gpu=nb_gpu, use_gpu=use_gpu,
             normalization=templates_normalization, debug_plots=debug_plots
         )
+    # B7
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B7... "],
+            'debug',
+            logger,
+            display=False
+        )
     comm.Barrier()
     gc.collect()
     sys.stderr.flush()
@@ -1839,6 +1927,14 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
         params, erase=True, normalize=templates_normalization, nb_cpu=nb_cpu, nb_gpu=nb_gpu, use_gpu=use_gpu
     )
 
+    # B8
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B8... "],
+            'debug',
+            logger,
+            display=False
+        )
     comm.Barrier()
     gc.collect()
     sys.stderr.flush()
