@@ -552,11 +552,13 @@ class CircusParser(object):
         self.parser.set('data', 'is_cluster', str(is_cluster))
 
         if is_cluster:
-            print_and_log(["Cluster detected, so using local /tmp folders and blosc compression"], 'debug', logger)
+            if comm.rank == 0:
+                print_and_log(["Cluster detected, so using local /tmp folders and blosc compression"], 'debug', logger)
             self.parser.set('data', 'global_tmp', 'False')
             #self.parser.set('data', 'blosc_compress', 'True')
         else:
-            print_and_log(["Cluster not detected, so using global /tmp folder"], 'debug', logger)
+            if comm.rank == 0:
+                print_and_log(["Cluster not detected, so using global /tmp folder"], 'debug', logger)
 
         for section in ['whitening', 'clustering']:
             test = (self.parser.getfloat(section, 'nb_elts') > 0) and (self.parser.getfloat(section, 'nb_elts') <= 1)
@@ -1011,7 +1013,8 @@ class CircusParser(object):
             if not source:
 
                 # First we read the original data file, that should not be empty
-                print_and_log(['Reading first the real data file to get the parameters'], 'debug', logger)
+                if comm.rank == 0:
+                    print_and_log(['Reading first the real data file to get the parameters'], 'debug', logger)
                 tmp = self._create_data_file(data_file, False, params, stream_mode)
 
                 # Then we change the dataa_file name
