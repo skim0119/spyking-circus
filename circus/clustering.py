@@ -943,19 +943,19 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             gpass = nb_repeats
 
         if gpass != 1:
-            print_and_log(["Node %d found %d spikes over %d requested" % (comm.rank, nb_elements, nb_total)], 'default', logger)
+            print_and_log(["Rank %d found %d spikes over %d requested" % (comm.rank, nb_elements, nb_total)], 'default', logger)
             if nb_elements == 0:
                 print_and_log(["No more spikes in the recording, stop searching"], 'info', logger)
         else:
             if isolation:
                 lines = [
-                    "Node %d found %d isolated spikes over %d requested (%d rejected)"
+                    "Rank %d found %d isolated spikes over %d requested (%d rejected)"
                     % (comm.rank, nb_elements, nb_total, nb_rejected)
                 ]
                 print_and_log(lines, 'default', logger)
             else:
                 lines = [
-                    "Node %d found %d spikes over %d requested (%d rejected)"
+                    "Rank %d found %d spikes over %d requested (%d rejected)"
                     % (comm.rank, nb_elements, nb_total, nb_rejected)
                 ]
                 print_and_log(lines, 'default', logger)
@@ -1032,7 +1032,7 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             dist_file.close()
             result['dist_file'] = tmp_file
             tmp_h5py = h5py.File(result['dist_file'], 'w', libver='earliest')
-            print_and_log(["Node %d will use temp file %s" % (comm.rank, tmp_file)], 'debug', logger)
+            print_and_log(["Rank(%d) will use temp file %s" % (comm.rank, tmp_file)], 'debug', logger)
         elif gpass > 1:
             tmp_h5py = h5py.File(result['dist_file'], 'r', libver='earliest')
         else:
@@ -1317,7 +1317,7 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                             n_clusters += [numpy.sum(cluster_results[p][ielec]['groups'][mask] == i)]
 
                         line = [
-                            "Node %d: %d-%d %s templates on channel %d from %d spikes: %s"
+                            "Rank %d: %d-%d %s templates on channel %d from %d spikes: %s"
                             % (comm.rank, merged[0], merged[1], flag, ielec, n_data, str(n_clusters))
                         ]
                         print_and_log(line, 'debug', logger)
@@ -1328,7 +1328,7 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                         cluster_results[p][ielec]['n_clus'] = 0
                         result['clusters_%s_' % p + str(ielec)] = numpy.zeros(0, dtype=numpy.int32)
                         result['delta_%s_' % p + str(ielec)] = numpy.zeros(0, dtype=numpy.float32)
-                        line = ["Node %d: not enough %s spikes on channel %d" % (comm.rank, flag, ielec)]
+                        line = ["Rank %d: not enough %s spikes on channel %d" % (comm.rank, flag, ielec)]
                         print_and_log(line, 'debug', logger)
 
                     local_nb_clusters += cluster_results[p][ielec]['n_clus']
