@@ -759,7 +759,7 @@ def load_data_memshared(
                             type_size = 0
                         elif locdata.dtype == 'float32':
                             type_size = 1
-                        data_bytes = data_size * 4
+                        data_bytes = data_size * intsize
                         
                     #type_size = numpy_int(sub_comm.bcast(numpy.array([type_size], dtype=numpy.int32), root=0)[0])
                     type_size = numpy_int(sub_comm.bcast(type_size, root=0))
