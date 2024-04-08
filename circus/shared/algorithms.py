@@ -846,11 +846,16 @@ def merging_cc(params, nb_cpu, nb_gpu, use_gpu):
         res = []
         res2 = []
         for i in to_explore:
-            res += [i * nb_temp, (i + 1) * nb_temp]
-            res2 += [i, i+1]
+            res.extend([i * nb_temp, (i + 1) * nb_temp])
+            res2.extend([i, i+1])
+        if comm.rank == 0:
+            print(f"{over_x.shape=}, {over_x.dtype=}")
+            print(f"{sub_over.shape=}, {over_sorted.shape=}")
+            print(f"{len(res)=}, {len(res2)=}")
+            # TODO: If you get memory error here, try to increase number of workers
 
         bounds = numpy.searchsorted(over_x, res, 'left')
-        bounds_2 = numpy.searchsorted(sub_over[over_sorted], res2, 'left')
+        bounds_2 = numpy.searchsorted(sub_over, res2, 'left', sorter=over_sorted)
 
         duration = over_shape[1] // 2
         mask_duration = (over_y < duration)

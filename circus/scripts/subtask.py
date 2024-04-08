@@ -34,7 +34,7 @@ def main():
         test_mpi_ring(nb_cpu)
 
     use_gpu = (sys.argv[5].lower() == 'true')
-    print_and_log(['Launching subtask %s with params %s' % (task, sys.argv[2:])], 'debug', logger)
+    # print_and_log(['Launching subtask %s with params %s' % (task, sys.argv[2:])], 'debug', logger)
     if task == 'benchmarking':
         output = sys.argv[6]
         benchmark = sys.argv[7]
