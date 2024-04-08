@@ -245,7 +245,8 @@ def get_dead_times(params):
             nb_dead_times = len(dead_times)
 
         sub_comm.Barrier()
-        long_size = numpy.int64(sub_comm.bcast(numpy.array([nb_dead_times], dtype=numpy.uint32), root=0)[0])
+        #long_size = numpy.int64(sub_comm.bcast(numpy.array([nb_dead_times], dtype=numpy.uint32), root=0)[0])
+        long_size = numpy.int64(sub_comm.bcast(nb_dead_times, root=0))
 
         if local_rank == 0:
             data_bytes = long_size * intsize
@@ -303,9 +304,12 @@ def get_stas_memshared(
     sub_comm.Barrier()
 
     # Broadcast the sizes of the data structures to share.
-    triggers_size = numpy.int64(sub_comm.bcast(numpy.array([nb_triggers], dtype=numpy.uint32), root=0)[0])
-    neighs_size = numpy.int64(sub_comm.bcast(numpy.array([nb_neighs], dtype=numpy.uint32), root=0)[0])
-    ts_size = numpy.int64(sub_comm.bcast(numpy.array([nb_ts], dtype=numpy.uint32), root=0)[0])
+    #triggers_size = numpy.int64(sub_comm.bcast(numpy.array([nb_triggers], dtype=numpy.uint32), root=0)[0])
+    #neighs_size = numpy.int64(sub_comm.bcast(numpy.array([nb_neighs], dtype=numpy.uint32), root=0)[0])
+    #ts_size = numpy.int64(sub_comm.bcast(numpy.array([nb_ts], dtype=numpy.uint32), root=0)[0])
+    triggers_size = numpy.int64(sub_comm.bcast(nb_triggers, root=0))
+    neighs_size = numpy.int64(sub_comm.bcast(nb_neighs, root=0))
+    ts_size = numpy.int64(sub_comm.bcast(nb_ts, root=0))
 
     # Declare the data structures to share.
     if local_rank == 0:
@@ -413,8 +417,11 @@ def load_data_memshared(
     file_out_suff = params.get('data', 'file_out_suff')
     data_file_noext = params.get('data', 'data_file_noext')
     local_rank = sub_comm.rank
-    intsize = MPI.INT.Get_size()
+    numpy_int = numpy.int64
+    intsize = MPI.INT64_T.Get_size()
     floatsize = MPI.FLOAT.Get_size()
+
+    assert intsize == numpy_int().itemsize, "Data type size for numpy and MPI is ill-defined"
 
     data_file = params.data_file
     N_e = params.getint('data', 'N_e')
@@ -471,10 +478,12 @@ def load_data_memshared(
                 if is_sparse:
                     nb_ptr = len(sparse_mat.indptr)
 
-            long_size = numpy.int64(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+            #long_size = numpy_int(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+            long_size = numpy_int(sub_comm.bcast(nb_data, root=0))
 
             if is_sparse:
-                short_size = numpy.int64(sub_comm.bcast(numpy.array([nb_ptr + nb_data], dtype=numpy.int32), root=0)[0])
+                #short_size = numpy_int(sub_comm.bcast(numpy.array([nb_ptr + nb_data], dtype=numpy.int32), root=0)[0])
+                short_size = numpy_int(sub_comm.bcast(nb_ptr + nb_data, root=0))
 
             if local_rank == 0:
                 if is_sparse:
@@ -495,7 +504,7 @@ def load_data_memshared(
 
             data = numpy.ndarray(buffer=buf_data, dtype=numpy.float32, shape=(long_size,))
             if is_sparse:
-                indices = numpy.ndarray(buffer=buf_indices, dtype=numpy.int32, shape=(short_size,))
+                indices = numpy.ndarray(buffer=buf_indices, dtype=numpy_int, shape=(short_size,))
 
             if local_rank == 0:
                 if is_sparse:
@@ -532,7 +541,7 @@ def load_data_memshared(
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == "overlaps":
 
         file_name = file_out_suff + '.overlap%s.hdf5' % extension
@@ -541,7 +550,7 @@ def load_data_memshared(
             c_overlap = h5py.File(file_name, 'r')
             
             over_shape = c_overlap.get('over_shape')[:]
-            N_over = numpy.int64(numpy.sqrt(over_shape[0]))
+            N_over = numpy_int(numpy.sqrt(over_shape[0]))
             S_over = over_shape[1]
             c_overs = {}
             nb_data = 0
@@ -559,7 +568,8 @@ def load_data_memshared(
             indices_bytes = 0
             data_bytes = 0
 
-            nb_data = numpy.int64(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+            #nb_data = numpy_int(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+            nb_data = numpy_int(sub_comm.bcast(nb_data, root=0))
             win_data = MPI.Win.Allocate_shared(nb_data * floatsize, floatsize, comm=sub_comm)
             buf_data, _ = win_data.Shared_query(0)
             buf_data = numpy.array(buf_data, dtype='B', copy=False)
@@ -571,7 +581,7 @@ def load_data_memshared(
             buf_indices = numpy.array(buf_indices, dtype='B', copy=False)
 
             data = numpy.ndarray(buffer=buf_data, dtype=numpy.float32, shape=(nb_data,))
-            indices = numpy.ndarray(buffer=buf_indices, dtype=numpy.int32, shape=(factor,))
+            indices = numpy.ndarray(buffer=buf_indices, dtype=numpy_int, shape=(factor,))
 
             global_offset_data = 0
             global_offset_ptr = 0
@@ -590,8 +600,8 @@ def load_data_memshared(
                 bounds = numpy.searchsorted(over_x, res, 'left')
                 sub_over = numpy.mod(over_x, N_over)
                 mask_duration = (over_y < duration)
-                over_sorted = numpy.argsort(sub_over).astype(numpy.int32)
-                bounds_2 = numpy.searchsorted(sub_over[over_sorted], res2, 'left')
+                over_sorted = numpy.argsort(sub_over)#.astype(numpy.int32)
+                bounds_2 = numpy.searchsorted(sub_over, res2, 'left', sorter=over_sorted)
 
             import gc
 
@@ -614,8 +624,10 @@ def load_data_memshared(
                     local_nb_data = len(sparse_mat.data)
                     local_nb_ptr = len(sparse_mat.indptr)
 
-                local_nb_data = numpy.int64(sub_comm.bcast(numpy.array([local_nb_data], dtype=numpy.int32), root=0)[0])
-                local_nb_ptr = numpy.int64(sub_comm.bcast(numpy.array([local_nb_ptr], dtype=numpy.int32), root=0)[0])
+                #local_nb_data = numpy_int(sub_comm.bcast(numpy.array([local_nb_data], dtype=numpy.int32), root=0)[0])
+                local_nb_data = numpy_int(sub_comm.bcast(local_nb_data, root=0))
+                #local_nb_ptr = numpy_int(sub_comm.bcast(numpy.array([local_nb_ptr], dtype=numpy.int32), root=0)[0])
+                local_nb_ptr = numpy_int(sub_comm.bcast(local_nb_ptr, root=0))
 
                 boundary_data = global_offset_data + local_nb_data
                 boundary_ptr = global_offset_ptr + factor // 2
@@ -646,7 +658,7 @@ def load_data_memshared(
         else:
             if comm.rank == 0:
                 print_and_log(["No overlaps found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
 
     elif data == "overlaps-raw":
 
@@ -670,7 +682,8 @@ def load_data_memshared(
 
             c_overlap.close()
 
-            nb_data = numpy.int64(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+            #_nb_data = numpy_int(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+            nb_data = numpy_int(sub_comm.bcast(nb_data, root=0))
 
             if local_rank == 0:
                 indices_bytes = nb_data * intsize
@@ -695,10 +708,10 @@ def load_data_memshared(
             buf_indices_sorted = numpy.array(buf_indices_sorted, dtype='B', copy=False)
 
             data = numpy.ndarray(buffer=buf_data, dtype=numpy.float32, shape=(nb_data,))
-            indices_x = numpy.ndarray(buffer=buf_indices_x, dtype=numpy.int32, shape=(nb_data,))
-            indices_y = numpy.ndarray(buffer=buf_indices_y, dtype=numpy.int32, shape=(nb_data,))
-            indices_sub = numpy.ndarray(buffer=buf_indices_sub, dtype=numpy.int32, shape=(nb_data,))
-            indices_sorted = numpy.ndarray(buffer=buf_indices_sorted, dtype=numpy.int32, shape=(nb_data,))
+            indices_x = numpy.ndarray(buffer=buf_indices_x, dtype=numpy_int, shape=(nb_data,))
+            indices_y = numpy.ndarray(buffer=buf_indices_y, dtype=numpy_int, shape=(nb_data,))
+            indices_sub = numpy.ndarray(buffer=buf_indices_sub, dtype=numpy_int, shape=(nb_data,))
+            indices_sorted = numpy.ndarray(buffer=buf_indices_sorted, dtype=numpy_int, shape=(nb_data,))
 
             sub_comm.Barrier()
 
@@ -707,7 +720,7 @@ def load_data_memshared(
                 indices_x[:] = over_x
                 indices_y[:] = over_y
                 indices_sub[:] = numpy.mod(over_x, N_over)
-                indices_sorted[:] = numpy.argsort(indices_sub).astype(numpy.int32)
+                indices_sorted[:] = numpy.argsort(indices_sub).astype(numpy_int)
                 del over_x, over_y, over_data
 
             sub_comm.Barrier()
@@ -718,7 +731,7 @@ def load_data_memshared(
         else:
             if comm.rank == 0:
                 print_and_log(["No overlaps found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
 
     elif data == 'clusters-light':
 
@@ -737,26 +750,29 @@ def load_data_memshared(
                         locdata = myfile.get(key)[:]
                         nb_data = len(locdata)
 
-                    data_size = numpy.int64(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+                    #data_size = numpy_int(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+                    data_size = numpy_int(sub_comm.bcast(nb_data, root=0))
                     type_size = 0
                     data_bytes = 0
 
                     if local_rank == 0:
-                        if locdata.dtype == 'int32':
+                        if locdata.dtype == 'int32' or locdata.dtype == 'int64':
                             type_size = 0
                         elif locdata.dtype == 'float32':
                             type_size = 1
                         data_bytes = data_size * 4
                         
-                    type_size = numpy.int64(sub_comm.bcast(numpy.array([type_size], dtype=numpy.int32), root=0)[0])
-                    empty = numpy.int64(sub_comm.bcast(numpy.array([data_bytes], dtype=numpy.int32), root=0)[0])
+                    #type_size = numpy_int(sub_comm.bcast(numpy.array([type_size], dtype=numpy.int32), root=0)[0])
+                    type_size = numpy_int(sub_comm.bcast(type_size, root=0))
+                    #empty = numpy_int(sub_comm.bcast(numpy.array([data_bytes], dtype=numpy.int32), root=0)[0])
+                    empty = numpy_int(sub_comm.bcast(data_bytes, root=0))
                     if empty > 0:
                         win_data = MPI.Win.Allocate_shared(data_bytes, 4, comm=sub_comm)
                         buf_data, _ = win_data.Shared_query(0)
 
                         buf_data = numpy.array(buf_data, dtype='B', copy=False)
                         if type_size == 0:
-                            data = numpy.ndarray(buffer=buf_data, dtype=numpy.int32, shape=(data_size,))
+                            data = numpy.ndarray(buffer=buf_data, dtype=numpy_int, shape=(data_size,))
                         elif type_size == 1:
                             data = numpy.ndarray(buffer=buf_data, dtype=numpy.float32, shape=(data_size,))
 
@@ -764,7 +780,7 @@ def load_data_memshared(
                             data[:] = locdata
                     else:
                         if type_size == 0:
-                            data = numpy.zeros(0, dtype=numpy.int32)
+                            data = numpy.zeros(0, dtype=numpy_int)
                         elif type_size == 1:
                             data = numpy.zeros(0, dtype=numpy.float32)
 
@@ -776,7 +792,7 @@ def load_data_memshared(
         else:
             if comm.rank == 0:
                 print_and_log(["No clusters found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
 
 
 def load_data(params, data, extension=''):
@@ -806,7 +822,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'weird-thresholds':
         filename = file_out_suff + '.basis.hdf5'
         weird_thresh = params.getfloat('detection', 'weird_thresh')
@@ -818,7 +834,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'mads':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -829,7 +845,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'stds':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -840,7 +856,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'matched-thresholds':
         filename = file_out_suff + '.basis.hdf5'
         matched_thresh = params.getfloat('detection', 'matched_thresh')
@@ -852,7 +868,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'matched-thresholds-pos':
         filename = file_out_suff + '.basis.hdf5'
         matched_thresh = params.getfloat('detection', 'matched_thresh')
@@ -864,7 +880,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'spatial_whitening':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -876,11 +892,11 @@ def load_data(params, data, extension=''):
             except Exception:
                 if comm.rank == 0:
                     print_and_log(["The whitening step should be launched first!"], 'error', logger)
-                sys.exit(0)
+                sys.exit(1)
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'temporal_whitening':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -892,11 +908,11 @@ def load_data(params, data, extension=''):
             except Exception:
                 if comm.rank == 0:
                     print_and_log(["The whitening step should be launched first!"], 'error', logger)
-                sys.exit(0)
+                sys.exit(1)
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'basis':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -909,11 +925,11 @@ def load_data(params, data, extension=''):
             except Exception:
                 if comm.rank == 0:
                     print_and_log(["The whitening step should be launched first!"], 'error', logger)
-                sys.exit(0)
+                sys.exit(1)
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'basis-pos':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -926,11 +942,11 @@ def load_data(params, data, extension=''):
             except Exception:
                 if comm.rank == 0:
                     print_and_log(["The whitening step should be launched first!"], 'error', logger)
-                sys.exit(0)
+                sys.exit(1)
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'waveform':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -941,7 +957,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'waveforms':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -952,7 +968,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'waveform-pos':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -963,7 +979,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'waveforms-pos':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -974,7 +990,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'weights':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -995,7 +1011,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'weights-pos':
         filename = file_out_suff + '.basis.hdf5'
         if os.path.exists(filename):
@@ -1016,7 +1032,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["The whitening step should be launched first!"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'templates':
         filename = file_out_suff + '.templates%s.hdf5' % extension
         if os.path.exists(filename):
@@ -1031,7 +1047,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'nb_chances':
         filename = file_out_suff + '.templates%s.hdf5' % extension
         if os.path.exists(filename):
@@ -1045,7 +1061,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'nb_templates':
         filename = file_out_suff + '.templates%s.hdf5' % extension
         if os.path.exists(filename):
@@ -1056,7 +1072,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'overlaps':
         filename = file_out_suff + '.overlap%s.hdf5' % extension
         if os.path.exists(filename):
@@ -1079,9 +1095,9 @@ def load_data(params, data, extension=''):
 
             bounds = numpy.searchsorted(over_x, res, 'left')
             sub_over = numpy.mod(over_x, N_over)
-            over_sorted = numpy.argsort(sub_over).astype(numpy.int32)
+            over_sorted = numpy.argsort(sub_over)# .astype(numpy.int32)
 
-            bounds_2 = numpy.searchsorted(sub_over[over_sorted], res2, 'left')
+            bounds_2 = numpy.searchsorted(sub_over, res2, 'left', sorter=over_sorted)
 
             mask_duration = (over_y < duration)
 
@@ -1107,7 +1123,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No overlaps found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'overlaps-raw':
         filename = file_out_suff + '.overlap%s.hdf5' % extension
         if os.path.exists(filename):
@@ -1117,13 +1133,13 @@ def load_data(params, data, extension=''):
             over_data = myfile.get('over_data')[:].ravel()
             over_shape = myfile.get('over_shape')[:].ravel()
             over_sub = numpy.mod(over_x, int(numpy.sqrt(over_shape[0])))
-            over_sorted = numpy.argsort(over_sub).astype(numpy.int32)
+            over_sorted = numpy.argsort(over_sub)#.astype(numpy.int32)
             myfile.close()
             return over_x, over_y, over_data, over_sub, over_sorted, over_shape
         else:
             if comm.rank == 0:
                 print_and_log(["No overlaps found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'version':
         filename = file_out_suff + '.templates%s.hdf5' % extension
         if os.path.exists(filename):
@@ -1144,7 +1160,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'norm-templates':
         if os.path.exists(file_out_suff + '.templates%s.hdf5' % extension):
             myfile = h5py.File(file_out_suff + '.templates%s.hdf5' % extension, 'r', libver='earliest')
@@ -1154,7 +1170,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No norms found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'purity':
         if os.path.exists(file_out_suff + '.templates%s.hdf5' % extension):
             myfile = h5py.File(file_out_suff + '.templates%s.hdf5' % extension, 'r', libver='earliest')
@@ -1168,7 +1184,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'confusion':
         if os.path.exists(file_out_suff + '.templates%s.hdf5' % extension):
             myfile = h5py.File(file_out_suff + '.templates%s.hdf5' % extension, 'r', libver='earliest')
@@ -1182,7 +1198,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'maxoverlap':
         if os.path.exists(file_out_suff + '.templates%s.hdf5' % extension):
             myfile = h5py.File(file_out_suff + '.templates%s.hdf5' % extension, 'r', libver='earliest')
@@ -1192,7 +1208,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'maxlag':
         if os.path.exists(file_out_suff + '.templates%s.hdf5' % extension):
             myfile = h5py.File(file_out_suff + '.templates%s.hdf5' % extension, 'r', libver='earliest')
@@ -1202,7 +1218,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No templates found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'supports':
         if os.path.exists(file_out_suff + '.templates%s.hdf5' % extension):
             myfile = h5py.File(file_out_suff + '.templates%s.hdf5' % extension, 'r', libver='earliest')
@@ -1212,7 +1228,7 @@ def load_data(params, data, extension=''):
         else:
             if comm.rank == 0:
                 print_and_log(["No supports found! Check suffix?"], 'error', logger)
-            sys.exit(0)
+            sys.exit(1)
     elif data == 'common-supports':
         if os.path.exists(file_out_suff + '.templates%s.hdf5' % extension):
             myfile = h5py.File(file_out_suff + '.templates%s.hdf5' % extension, 'r', libver='earliest')
@@ -2540,8 +2556,10 @@ def load_sp_memshared(file_name, nb_temp):
 
         c_overlap.close()
 
-        nb_data = numpy.int64(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
-        nb_noise_data = numpy.int64(sub_comm.bcast(numpy.array([nb_noise_data], dtype=numpy.int32), root=0)[0])
+        #nb_data = numpy.int64(sub_comm.bcast(numpy.array([nb_data], dtype=numpy.int32), root=0)[0])
+        nb_data = numpy.int64(sub_comm.bcast(nb_data, root=0))
+        #nb_noise_data = numpy.int64(sub_comm.bcast(numpy.array([nb_noise_data], dtype=numpy.int32), root=0)[0])
+        nb_noise_data = numpy.int64(sub_comm.bcast(nb_noise_data, root=0))
 
         win_data = MPI.Win.Allocate_shared(nb_data * floatsize, floatsize, comm=sub_comm)
         buf_data, _ = win_data.Shared_query(0)
