@@ -29,9 +29,7 @@ from scipy.optimize import brenth, minimize
 
 class CustomTqdm(tqdm.tqdm):
     def update(self, n=1):
-        if n == self.total // 2:
-            super().update(n)
-        elif n == self.total // 2:
+        if n == self.total // 5:
             super().update(n)
 
     def __str__(self):
@@ -267,7 +265,7 @@ def get_tqdm_progressbar(params, iterator, desc=""):
     sys.stderr.flush()
     show_bars = params.getboolean('data', 'status_bars')
     if show_bars:
-        return CustomTqdm(iterator, bar_format='{desc}{percentage:3.0f}%|{bar}|[{elapsed}<{remaining}, {rate_fmt}]', ncols=33, desc=desc)
+        return CustomTqdm(iterator, bar_format='{desc}{percentage:3.0f}%|{bar}|[{elapsed}<{remaining}, {rate_fmt}]', ncols=66, desc=desc)
     else:
         return iterator
 
