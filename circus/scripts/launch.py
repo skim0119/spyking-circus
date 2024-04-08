@@ -385,79 +385,80 @@ but a subset x,y can be done. Steps are:
 
         if not result:
             for subtask, command in subtasks:
-                if subtask in steps:
-                    if command == 'python':
-                        # Directly call the launcher
-                        try:
-                            circus.launch(subtask, filename, nb_cpu, nb_gpu, use_gpu)
-                        except:
-                            print_and_log(['Step "%s" failed!' % subtask], 'error', logger)
+                if subtask not in steps:
+                    continue
+                if command == 'python':
+                    # Directly call the launcher
+                    try:
+                        circus.launch(subtask, filename, nb_cpu, nb_gpu, use_gpu)
+                    except:
+                        print_and_log(['Step "%s" failed!' % subtask], 'error', logger)
+                        sys.exit(0)
+                elif command == 'mpirun':
+                    # Use mpirun to make the call
+                    mpi_args = gather_mpi_arguments(hostfile, params)
+                    one_cpu = False
+
+                    if subtask in ['filtering', 'benchmarking'] and not is_writable:
+                        if not preview and overwrite:
+                            print_and_log(['The file format %s is read only!' % file_format,
+                                           'You should set overwite to False, to create a copy of the data.',
+                                           'However, note that if you have streams, informations on times',
+                                           'will be discarded'], 'info', logger)
                             sys.exit(0)
-                    elif command == 'mpirun':
-                        # Use mpirun to make the call
-                        mpi_args = gather_mpi_arguments(hostfile, params)
-                        one_cpu = False
 
-                        if subtask in ['filtering', 'benchmarking'] and not is_writable:
-                            if not preview and overwrite:
-                                print_and_log(['The file format %s is read only!' % file_format,
-                                               'You should set overwite to False, to create a copy of the data.',
-                                               'However, note that if you have streams, informations on times',
-                                               'will be discarded'], 'info', logger)
-                                sys.exit(0)
+                    if subtask in ['filtering'] and not support_parallel_write and (args.cpu > 1):
+                        print_and_log(['No parallel writes for %s: only 1 node used for %s' %(file_format, subtask)], 'info', logger)
+                        nb_tasks = str(1)
+                        one_cpu = True
 
-                        if subtask in ['filtering'] and not support_parallel_write and (args.cpu > 1):
-                            print_and_log(['No parallel writes for %s: only 1 node used for %s' %(file_format, subtask)], 'info', logger)
-                            nb_tasks = str(1)
-                            one_cpu = True
-
+                    else:
+                        if subtask != 'fitting':
+                            nb_tasks = str(args.cpu)
                         else:
-                            if subtask != 'fitting':
-                                nb_tasks = str(args.cpu)
-                            else:
-                                # if use_gpu == 'True':
-                                #     nb_tasks = str(args.gpu)
-                                # else:
-                                nb_tasks = str(args.cpu)
+                            # if use_gpu == 'True':
+                            #     nb_tasks = str(args.gpu)
+                            # else:
+                            nb_tasks = str(args.cpu)
 
-                        if subtask == 'benchmarking':
-                            if (output is None) or (benchmark is None):
-                                print_and_log(["To generate synthetic datasets, you must provide output and type"], 'error', logger)
-                                sys.exit(0)
-                            mpi_args += [
-                                '-np', nb_tasks, 'spyking-circus-subtask',
-                                subtask, filename, str(nb_cpu), str(nb_gpu),
-                                use_gpu, output, benchmark
-                            ]
-                        elif subtask in ['merging', 'converting']:
-                            mpi_args += [
-                                '-np', nb_tasks, 'spyking-circus-subtask',
-                                subtask, filename, str(nb_cpu), str(nb_gpu),
-                                use_gpu, extension
-                            ]
-                        elif subtask in ['deconverting']:
-                            nb_tasks = str(1)
-                            nb_cpu = 1
-                            mpi_args += [
-                                '-np', nb_tasks, 'spyking-circus-subtask', subtask,
-                                filename, str(nb_cpu), str(nb_gpu), use_gpu,
-                                extension
-                            ]
-                        else:
-                            mpi_args += [
-                                '-np', nb_tasks, 'spyking-circus-subtask',
-                                subtask, filename, str(nb_cpu), str(nb_gpu),
-                                use_gpu, str(one_cpu)
-                            ]
-
-                        print_and_log(['Launching task %s' % subtask], 'debug', logger)
-                        print_and_log(['Command: %s' % str(mpi_args)], 'debug', logger)
-
-                        try:
-                            subprocess.check_call(mpi_args)
-                        except subprocess.CalledProcessError as e:
-                            print_and_log(['Step "%s" failed for reason %s!' % (subtask, e)], 'error', logger)
+                    if subtask == 'benchmarking':
+                        if (output is None) or (benchmark is None):
+                            print_and_log(["To generate synthetic datasets, you must provide output and type"], 'error', logger)
                             sys.exit(0)
+                        mpi_args += [
+                            '-np', nb_tasks, 'spyking-circus-subtask',
+                            subtask, filename, str(nb_cpu), str(nb_gpu),
+                            use_gpu, output, benchmark
+                        ]
+                    elif subtask in ['merging', 'converting']:
+                        mpi_args += [
+                            '-np', nb_tasks, 'spyking-circus-subtask',
+                            subtask, filename, str(nb_cpu), str(nb_gpu),
+                            use_gpu, extension
+                        ]
+                    elif subtask in ['deconverting']:
+                        nb_tasks = str(1)
+                        nb_cpu = 1
+                        mpi_args += [
+                            '-np', nb_tasks, 'spyking-circus-subtask', subtask,
+                            filename, str(nb_cpu), str(nb_gpu), use_gpu,
+                            extension
+                        ]
+                    else:
+                        mpi_args += [
+                            '-np', nb_tasks, 'spyking-circus-subtask',
+                            subtask, filename, str(nb_cpu), str(nb_gpu),
+                            use_gpu, str(one_cpu)
+                        ]
+
+                    print_and_log(['Launching task %s' % subtask], 'debug', logger)
+                    print_and_log(['Command: %s' % str(mpi_args)], 'debug', logger)
+
+                    try:
+                        subprocess.check_call(mpi_args)
+                    except subprocess.CalledProcessError as e:
+                        print_and_log(['Step "%s" failed for reason %s!' % (subtask, e)], 'error', logger)
+                        sys.exit(0)
 
     if preview or result:
 

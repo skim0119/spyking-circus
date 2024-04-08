@@ -457,7 +457,7 @@ class DataFile(object):
             if (idx > 0) and (idx in self._chunks_in_sources - 1):
                 return True
         else:
-            if idx == nb_chunks:
+            if idx == nb_chunks - 1:
                 return True
         return False
 

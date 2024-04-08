@@ -210,7 +210,6 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
     if n_tm == 0:
         if comm.rank == 0:
             print_and_log(["No templates present. Redo clustering?"], 'default', logger)
-
         sys.exit(0)
 
     if comm.rank == 0:
