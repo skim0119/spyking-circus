@@ -4,6 +4,12 @@ import logging
 import sys
 
 
+# TURN off Fore
+class DummyFore:
+    BLACK=RED=GREEN=YELLOW=BLUE=MAGENTA=CYAN=WHITE=RESET=''
+saved_Fore, Fore = Fore, DummyFore
+
+
 def get_header():
 
     import circus
@@ -72,9 +78,9 @@ def write_to_logger(logger, to_write, level='info'):
 
 def print_and_log(to_print, level='info', logger=None, display=True):
     if display:
-        if level == 'default':
+        if level == 'default' or level == 'debug':
             for line in to_print:
-                print((Fore.WHITE + line + '\r'))
+                print((Fore.WHITE + line))
         if level == 'info':
             print_info(to_print)
         elif level == 'error':
@@ -88,18 +94,18 @@ def print_and_log(to_print, level='info', logger=None, display=True):
 
 def print_info(lines):
     """Prints informations messages, enhanced graphical aspects."""
-    print((Fore.YELLOW + "-------------------------  Informations  -------------------------\r"))
+    print((Fore.YELLOW + "-------------------------  Informations  -------------------------"))
     for line in lines:
-        print((Fore.YELLOW + "| " + line + '\r'))
-    print((Fore.YELLOW + "------------------------------------------------------------------\r" + Fore.WHITE))
+        print((Fore.YELLOW + "| " + line))
+    print((Fore.YELLOW + "------------------------------------------------------------------" + Fore.WHITE))
 
 
 def print_error(lines):
     """Prints errors messages, enhanced graphical aspects."""
-    print((Fore.RED + "----------------------------  Error  -----------------------------\r"))
+    print((Fore.RED + "----------------------------  Error  -----------------------------"))
     for line in lines:
-        print((Fore.RED + "| " + line + '\r'))
-    print((Fore.RED + "------------------------------------------------------------------\r" + Fore.WHITE))
+        print((Fore.RED + "| " + line))
+    print((Fore.RED + "------------------------------------------------------------------" + Fore.WHITE))
 
 
 def get_colored_header():
