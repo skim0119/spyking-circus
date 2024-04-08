@@ -164,7 +164,41 @@ def gather_array(data, mpi_comm, root=0, shape=0, dtype='float32', compress=Fals
 
     if not compress:
         gdata = numpy.empty(numpy.int64(sum(sizes)), dtype=np_type)
-        mpi_comm.Gatherv([data.flatten(), size, mpi_type], [gdata, (sizes, displacements), mpi_type], root=root)
+        max_size_limit = 256 * 1024 * 1024 # 2GB limit
+
+        n_split = int(max(total_size // max_size_limit, 1))
+        data_flatten = data.flatten()
+        if n_split < 2:
+            mpi_comm.Gatherv([data_flatten, size, mpi_type], [gdata, (sizes, displacements), mpi_type], root=root)
+        else:
+            remaining_size = data_flatten.size
+            interval_size = data_flatten.size // n_split
+            _size = data_flatten.size
+            _offset = 0
+            for i in range(n_split + 1):
+                if interval_size == 0:
+                    _size = data_flatten.size
+                    _offset = 0
+                else:
+                    if remaining_size != 0:
+                        _size = min(remaining_size, interval_size)
+                        _offset = i * interval_size
+                _data = data_flatten[_offset:_offset+_size]
+                _sizes = mpi_comm.gather(_size, root=root)
+                _offsets = mpi_comm.gather(_offset, root=root)
+                if mpi_comm.Get_rank() == root:
+                    _gdata = numpy.empty(numpy.int64(sum(_sizes)), dtype=np_type)
+                    _displacements = [numpy.int64(sum(_sizes[:i])) for i in range(len(_sizes))]
+                    mpi_comm.Gatherv([_data, _size, mpi_type], [_gdata, (_sizes, _displacements), mpi_type], root=0)
+                    for d, o, s, _d in zip(displacements, _offsets, _sizes, _displacements):
+                        gdata[d+o:d+o+s] = _gdata[_d:_d+s]
+
+                    #_displacements = [d+o for d, o in zip(displacements, _offsets)]
+                    #mpi_comm.Gatherv([_data, _size, mpi_type], [gdata, (_sizes, _displacements), mpi_type], root=root)
+                else:
+                    mpi_comm.Gatherv([_data, _size, mpi_type], None, root=root)
+                remaining_size -= _size
+
     else:
         data = blosc.compress(data, typesize=mpi_type.size, cname='blosclz')
         data = mpi_comm.gather(data, root=root)
