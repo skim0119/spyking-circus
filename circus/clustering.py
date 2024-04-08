@@ -943,22 +943,24 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             gpass = nb_repeats
 
         if gpass != 1:
-            print_and_log(["Rank %d found %d spikes over %d requested" % (comm.rank, nb_elements, nb_total)], 'default', logger)
-            if nb_elements == 0:
-                print_and_log(["No more spikes in the recording, stop searching"], 'info', logger)
+            if comm.rank == 0:
+                print_and_log(["Rank %d found %d spikes over %d requested" % (comm.rank, nb_elements, nb_total)], 'default', logger)
+                if nb_elements == 0:
+                    print_and_log(["No more spikes in the recording, stop searching"], 'info', logger)
         else:
-            if isolation:
-                lines = [
-                    "Rank %d found %d isolated spikes over %d requested (%d rejected)"
-                    % (comm.rank, nb_elements, nb_total, nb_rejected)
-                ]
-                print_and_log(lines, 'default', logger)
-            else:
-                lines = [
-                    "Rank %d found %d spikes over %d requested (%d rejected)"
-                    % (comm.rank, nb_elements, nb_total, nb_rejected)
-                ]
-                print_and_log(lines, 'default', logger)
+            if comm.rank == 0:
+                if isolation:
+                    lines = [
+                        "Rank %d found %d isolated spikes over %d requested (%d rejected)"
+                        % (comm.rank, nb_elements, nb_total, nb_rejected)
+                    ]
+                    print_and_log(lines, 'default', logger)
+                else:
+                    lines = [
+                        "Rank %d found %d spikes over %d requested (%d rejected)"
+                        % (comm.rank, nb_elements, nb_total, nb_rejected)
+                    ]
+                    print_and_log(lines, 'default', logger)
             if nb_elements < 0.2 * nb_total:
                 few_elts = True
 
@@ -1122,7 +1124,8 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                         smart_searches[p][ielec] = 0
 
                     if smart_searches[p][ielec] > 0:
-                        print_and_log(['Smart search is actived on channel %d' % ielec], 'debug', logger)
+                        if comm.rank == 0:
+                            print_and_log(['Smart search is actived on channel %d' % ielec], 'debug', logger)
 
                 elif gpass == 1:
                     if len(result['data_%s_' % p + str(ielec)]) >= 1:
