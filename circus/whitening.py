@@ -617,7 +617,8 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
 
     sys.stderr.flush()
 
-    print_and_log(["Node %d has collected %d waveforms" % (comm.rank, elt_count_pos + elt_count_neg)], 'debug', logger)
+    if comm.rank == 0:
+        print_and_log(["Collected %d waveforms per rank" % (elt_count_pos + elt_count_neg)], 'debug', logger)
 
     if sign_peaks in ['negative', 'both']:
         times_neg = gather_array(times_neg[:elt_count_neg], comm, 0, 1, dtype='int32')

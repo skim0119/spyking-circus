@@ -265,7 +265,8 @@ def get_tqdm_progressbar(params, iterator, desc=""):
     sys.stderr.flush()
     show_bars = params.getboolean('data', 'status_bars')
     if show_bars:
-        return CustomTqdm(iterator, bar_format='{desc}{percentage:3.0f}%|{bar}|[{elapsed}<{remaining}, {rate_fmt}]', ncols=66, desc=desc)
+        #return CustomTqdm(iterator, bar_format='{desc}{percentage:3.0f}%|{bar}|[{elapsed}<{remaining}, {rate_fmt}]', ncols=66, desc=desc)
+        return CustomTqdm(iterator, ncols=66, desc=desc)
     else:
         return iterator
 

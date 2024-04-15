@@ -1,4 +1,5 @@
-import numpy, os, mpi4py, logging, sys
+import numpy, os, logging, sys
+import time
 import mpi4py
 mpi4py.rc.threads = False
 from mpi4py import MPI
@@ -52,7 +53,7 @@ def check_if_cluster():
 def check_valid_path(path):
 
     data = numpy.array([os.path.exists(path)], dtype='int32')
-    res = all_gather_array(data, comm, dtype='int32').astype(bool)
+    res = all_gather_array(data, comm, dtype='int32').astype(numpy.bool_)
     return numpy.all(res)
 
 
@@ -164,7 +165,7 @@ def gather_array(data, mpi_comm, root=0, shape=0, dtype='float32', compress=Fals
 
     if not compress:
         gdata = numpy.empty(numpy.int64(sum(sizes)), dtype=np_type)
-        max_size_limit = 256 * 1024 * 1024 # 2GB limit
+        max_size_limit = 1024 * 1024 * 1024 # 2GB limit
 
         n_split = int(max(total_size // max_size_limit, 1))
         data_flatten = data.flatten()
@@ -175,7 +176,12 @@ def gather_array(data, mpi_comm, root=0, shape=0, dtype='float32', compress=Fals
             interval_size = data_flatten.size // n_split
             _size = data_flatten.size
             _offset = 0
+            if mpi_comm.rank == 0:
+                print_and_log([f"Gather large split:"], 'debug', logger)
             for i in range(n_split + 1):
+                if mpi_comm.rank == root:
+                    _stime = time.time()
+
                 if interval_size == 0:
                     _size = data_flatten.size
                     _offset = 0
@@ -198,12 +204,14 @@ def gather_array(data, mpi_comm, root=0, shape=0, dtype='float32', compress=Fals
                 else:
                     mpi_comm.Gatherv([_data, _size, mpi_type], None, root=root)
                 remaining_size -= _size
+                if mpi_comm.rank == 0:
+                    print_and_log([f"  {i+1}/{n_split+1} | {time.time() - _stime} sec: {data_flatten.size - remaining_size} gathered"], 'debug', logger)
 
     else:
         data = blosc.compress(data, typesize=mpi_type.size, cname='blosclz')
         data = mpi_comm.gather(data, root=root)
         gdata = [numpy.empty(0, dtype=np_type)]
-        if comm.rank == root:
+        if mpi_comm.rank == root:
             for blosc_data in data:
                 gdata.append(numpy.frombuffer(blosc.decompress(blosc_data), dtype=np_type))
         gdata = numpy.concatenate(gdata)

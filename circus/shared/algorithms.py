@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 import sys
 import scipy.optimize
@@ -441,7 +442,7 @@ def slice_templates(params, to_remove=None, to_merge=None, to_keep=None, extensi
         nb_amp_times = len(splits) + 1
 
     if comm.rank == 0:
-        print_and_log(['Node 0 is slicing templates'], 'debug', logger)
+        print_and_log(['Rank 0 is slicing templates'], 'debug', logger)
         old_templates = load_data(params, 'templates', extension=input_extension)
         old_limits = load_data(params, 'limits', extension=input_extension)
         if has_support:
@@ -589,7 +590,7 @@ def slice_templates(params, to_remove=None, to_merge=None, to_keep=None, extensi
 
 
 def slice_clusters(
-        params, result, to_remove=None, to_merge=None, extension='', input_extension='', light=False, method='safe'
+    params, result, to_remove=None, to_merge=None, extension='', input_extension='', light=False, method='safe'
 ):
     """Slice clusters in HDF5 templates.
 
@@ -623,7 +624,7 @@ def slice_clusters(
 
     if comm.rank == 0:
 
-        print_and_log(['Node 0 is slicing clusters'], 'debug', logger)
+        print_and_log(['Rank 0 is slicing clusters'], 'debug', logger)
         old_templates = load_data(params, 'templates', extension=input_extension)
         _, n_tm = old_templates.shape
 
@@ -1091,7 +1092,7 @@ def refine_amplitudes(params, nb_cpu, nb_gpu, use_gpu, normalization=True, debug
     all_elec = numpy.arange(comm.rank, N_e, comm.size)
 
     if comm.rank == 0:
-        to_explore = get_tqdm_progressbar(params, all_temp)
+        to_explore = get_tqdm_progressbar(params, all_temp, desc="refine loop 1")
     else:
         to_explore = all_temp
 
@@ -1135,7 +1136,6 @@ def refine_amplitudes(params, nb_cpu, nb_gpu, use_gpu, normalization=True, debug
         snippets, snippets_raw = get_stas(params, times_i - offsets[p][i], labels_i, ref_elec, neighs=sindices, nodes=nodes, pos=p, raw_snippets=True)
         nb_snippets, nb_electrodes, nb_times_steps = snippets_raw.shape
         snippets = numpy.ascontiguousarray(snippets_raw.reshape(nb_snippets, nb_electrodes * nb_times_steps).T)
-
         for j in range(nb_temp):
             if mask_intersect[i, j]:
                 if is_sparse:
@@ -1155,7 +1155,7 @@ def refine_amplitudes(params, nb_cpu, nb_gpu, use_gpu, normalization=True, debug
         noise_times[i] = [numpy.zeros(0, dtype=numpy.uint32)]
 
     if comm.rank == 0:
-        to_explore = get_tqdm_progressbar(params, all_elec)
+        to_explore = get_tqdm_progressbar(params, all_elec, desc="refine loop 2")
     else:
         to_explore = all_elec
 
@@ -1648,7 +1648,7 @@ def delete_mixtures(params, nb_cpu, nb_gpu, use_gpu, debug_plots):
     all_temp = numpy.arange(comm.rank, nb_temp, comm.size)
 
     if comm.rank == 0:
-        to_explore = get_tqdm_progressbar(params, all_temp)
+        to_explore = get_tqdm_progressbar(params, all_temp, desc="delete mixture loop")
     else:
         to_explore = all_temp
 
@@ -1780,13 +1780,15 @@ def delete_mixtures(params, nb_cpu, nb_gpu, use_gpu, debug_plots):
                         pylab.show()
 
 
-    to_remove = numpy.array(to_remove, dtype=numpy.int32)
-    to_remove = numpy.sort(gather_array(to_remove, comm, 0, 1, 'int32'))
+    to_remove = numpy.array(to_remove, dtype=numpy.int64)
+    to_remove = numpy.sort(gather_array(to_remove, comm, 0, 1, 'int64'))
 
     if comm.rank == 0:
         if len(to_remove) > 0:
             result = load_data(params, 'clusters')
-            slice_templates(params, to_remove)
+            print_and_log([f"{len(to_remove)=}"], 'debug', logger)
+
+            slice_templates(params, to_remove=to_remove)
             slice_clusters(params, result, to_remove=to_remove)
 
     comm.Barrier()

@@ -77,8 +77,8 @@ def data_stats(params, show=True, export_times=False):
 
 
 def get_stas(
-        params, times_i, labels_i, src, neighs, nodes=None,
-        mean_mode=False, all_labels=False, pos='neg', auto_align=True, raw_snippets=False
+    params, times_i, labels_i, src, neighs, nodes=None,
+    mean_mode=False, all_labels=False, pos='neg', auto_align=True, raw_snippets=False
 ):
 
     data_file = params.data_file
@@ -2280,7 +2280,7 @@ def get_overlaps(
     if comm.rank == 0:
         if verbose:
             print_and_log(["Pre-computing the overlaps of templates..."], 'default', logger)
-        to_explore = get_tqdm_progressbar(params, to_explore, desc="precompute overlapse")
+        to_explore = get_tqdm_progressbar(params, to_explore, desc="precompute overlaps")
 
     overlaps = {}
     overlaps['x'] = [numpy.zeros(0, dtype=numpy.uint32)]
