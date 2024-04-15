@@ -153,7 +153,7 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
         else:
             channel_group = list(params.probe['channel_groups'].keys())[0]
 
-        process_all_channels = numpy.all(nodes == numpy.arange(N_total))
+        process_all_channels = len(nodes) == N_total and numpy.all(nodes == numpy.arange(N_total))
         duration = int(0.1*params.rate)
 
         if comm.rank == 0:
@@ -172,11 +172,13 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
         if comm.rank == 0:
             to_explore = get_tqdm_progressbar(params, to_explore)
 
+        print_and_log([f"[{comm.rank}/{comm.size}]"+"File loading..."], 'debug', logger, display=False)
         if data_file_in == data_file_out:
             data_file_in.open(mode='r+')
         else:
             data_file_in.open(mode='r')
             data_file_out.open(mode='r+')
+        print_and_log([f"[{comm.rank}/{comm.size}]"+"File loaed."], 'debug', logger, display=False)
 
         if flag_saturation:
             comm.Barrier()
@@ -191,8 +193,9 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
 
             saturation = sat_value * max_value
 
+        data_file_out._starter = True
+        data_file_out._ender = False
         for count, gidx in enumerate(to_explore):
-
             is_first = data_file_in.is_first_chunk(gidx, nb_chunks)
             is_last = data_file_in.is_last_chunk(gidx, nb_chunks)
 
@@ -277,11 +280,17 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             else:
                 g_offset = t_offset
 
+            #print_and_log([f"[{comm.rank}/{comm.size}]"+f"Filtering job done. Barrier waiting..."], 'debug', logger, display=False)
+            #comm.Barrier()
+            #print_and_log([f"[{comm.rank}/{comm.size}]"+f"Filtering job done. Barrier pass."], 'debug', logger, display=False)
 
+            print_and_log([f"[{comm.rank}/{comm.size}]"+f"Data {gidx}({count}/{len(to_explore)}) setting..."], 'debug', logger, display=False)
+            if gidx == nb_chunks - 1:
+                data_file_out._ender = True
             data_file_out.set_data(g_offset, local_chunk)
+            print_and_log([f"[{comm.rank}/{comm.size}]"+f"Data {gidx}({count}/{len(to_explore)}) setting done."], 'debug', logger, display=False)
 
         sys.stderr.flush()
-
         comm.Barrier()
 
         if flag_saturation:
