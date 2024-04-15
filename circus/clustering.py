@@ -291,10 +291,10 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
 
         nb_chunks, last_chunk_len = data_file.analyze(chunk_size)
 
-    if smart_search is False:
-        gpass = 1
-    else:
+    if smart_search:
         gpass = 0
+    else:
+        gpass = 1
 
     # # We will perform several passes to enhance the quality of the clustering
 
@@ -318,7 +318,7 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
         if gpass == 1:
             for p in search_peaks:
 
-                smart_searches[p] = all_gather_array(smart_searches[p][comm.rank::comm.size], comm, 0).astype(bool)
+                smart_searches[p] = all_gather_array(smart_searches[p][comm.rank::comm.size], comm, 0).astype(numpy.bool_)
                 indices = []
                 for idx in range(comm.size):
                     indices += list(numpy.arange(idx, n_e, comm.size))
@@ -424,11 +424,12 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             loop_nb_elts = nb_elts
         elif gpass == 1:
             if elt_count < loop_nb_elts - 1:
-                lines = [
-                    "Node %d found not enough spikes: searching only %d spikes instead of %d"
-                    % (comm.rank, elt_count, loop_nb_elts)
-                ]
-                print_and_log(lines, 'debug', logger)
+                if comm.rank == 0:
+                    lines = [
+                        "Node %d found not enough spikes: searching only %d spikes instead of %d"
+                        % (comm.rank, elt_count, loop_nb_elts)
+                    ]
+                    print_and_log(lines, 'debug', logger)
                 loop_nb_elts = elt_count
         else:
             loop_max_elts_elec = max_elts_elec
@@ -450,7 +451,6 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                 f"[{comm.rank}/{comm.size}]: B1 arrived {gpass}..."],
                 'debug',
                 logger,
-                display=False
             )
         comm.Barrier()
         if comm.rank == 0:
@@ -458,7 +458,6 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                 f"[{comm.rank}/{comm.size}]: B1 passed {gpass}"],
                 'debug',
                 logger,
-                display=False
             )
         # # Random selection of spikes
         for gcount, gidx in enumerate(to_explore):
@@ -911,7 +910,6 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                 f"[{comm.rank}/{comm.size}]: B2 arrived {gpass}..."],
                 'debug',
                 logger,
-                display=False
             )
         comm.Barrier()
         if comm.rank == 0:
@@ -919,15 +917,15 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                 f"[{comm.rank}/{comm.size}]: B2 arrived {gpass}..."],
                 'debug',
                 logger,
-                display=False
             )
         sys.stderr.flush()
 
-        lines = [
-            'Node %d has collected %d spikes and rejected %d spikes' % (comm.rank, elt_count, rejected),
-            'Node %d has ignored %d noisy spikes' % (comm.rank, nb_noise)
-        ]
-        print_and_log(lines, 'debug', logger)
+        if comm.rank == 0:
+            lines = [
+                'Rank %d has collected %d spikes and rejected %d spikes' % (comm.rank, elt_count, rejected),
+                'Rank %d has ignored %d noisy spikes' % (comm.rank, nb_noise)
+            ]
+            print_and_log(lines, 'debug', logger)
         gdata = all_gather_array(numpy.array([elt_count], dtype=numpy.float32), comm, 0)
         gdata2 = gather_array(numpy.array([rejected], dtype=numpy.float32), comm, 0)
         nb_elements = numpy.int64(numpy.sum(gdata))
@@ -1319,11 +1317,12 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                         for i in numpy.unique(cluster_results[p][ielec]['groups'][mask]):
                             n_clusters += [numpy.sum(cluster_results[p][ielec]['groups'][mask] == i)]
 
-                        line = [
-                            "Rank %d: %d-%d %s templates on channel %d from %d spikes: %s"
-                            % (comm.rank, merged[0], merged[1], flag, ielec, n_data, str(n_clusters))
-                        ]
-                        print_and_log(line, 'debug', logger)
+                        if comm.rank == 0:
+                            line = [
+                                "Rank %d: %d-%d %s templates on channel %d from %d spikes: %s"
+                                % (comm.rank, merged[0], merged[1], flag, ielec, n_data, str(n_clusters))
+                            ]
+                            print_and_log(line, 'debug', logger)
                         local_mergings += merged[1]
                         del dist, d, c
                     else:
@@ -1331,14 +1330,20 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                         cluster_results[p][ielec]['n_clus'] = 0
                         result['clusters_%s_' % p + str(ielec)] = numpy.zeros(0, dtype=numpy.int32)
                         result['delta_%s_' % p + str(ielec)] = numpy.zeros(0, dtype=numpy.float32)
-                        line = ["Rank %d: not enough %s spikes on channel %d" % (comm.rank, flag, ielec)]
-                        print_and_log(line, 'debug', logger)
+                        if comm.rank == 0:
+                            line = ["Rank %d: not enough %s spikes on channel %d" % (comm.rank, flag, ielec)]
+                            print_and_log(line, 'debug', logger)
 
                     local_nb_clusters += cluster_results[p][ielec]['n_clus']
 
         if gpass >= 1:
             tmp_h5py.close()
+
+        if comm.rank == 0:
+            print_and_log([f"Finished {gpass}"], 'debug', logger)
+
         gpass += 1
+
 
     sys.stderr.flush()
     try:
@@ -1349,18 +1354,16 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
     # B3
     if comm.rank == 0:
         print_and_log([
-            f"[{comm.rank}/{comm.size}]: B3 arrived..."],
+            f"[{comm.rank}/{comm.size}]: B3 waiting..."],
             'debug',
             logger,
-            display=False
         )
     comm.Barrier()
     if comm.rank == 0:
         print_and_log([
-            f"[{comm.rank}/{comm.size}]: B3 arrived..."],
+            f"[{comm.rank}/{comm.size}]: B3 arrived"],
             'debug',
             logger,
-            display=False
         )
 
     # gdata = gather_array(numpy.array([local_hits], dtype=numpy.float32), comm, 0)
@@ -1805,7 +1808,6 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             f"[{comm.rank}/{comm.size}]: B4 arrived..."],
             'debug',
             logger,
-            display=False
         )
     comm.Barrier()
     if comm.rank == 0:
@@ -1813,7 +1815,6 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             f"[{comm.rank}/{comm.size}]: B4 passed"],
             'debug',
             logger,
-            display=False
         )
 
     if len(templates_to_remove) > 0:
@@ -1840,7 +1841,6 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             f"[{comm.rank}/{comm.size}]: B5... "],
             'debug',
             logger,
-            display=False
         )
     comm.Barrier()
 
@@ -1868,7 +1868,6 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                 f"[{comm.rank}/{comm.size}]: B6.1... "],
                 'debug',
                 logger,
-                display=False
             )
         comm.Barrier()
         gc.collect()
@@ -1885,10 +1884,15 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
                 f"[{comm.rank}/{comm.size}]: B6.2... "],
                 'debug',
                 logger,
-                display=False
             )
         comm.Barrier()
         gc.collect()
+        if comm.rank == 0:
+            print_and_log([
+                f"[{comm.rank}/{comm.size}]: B6.2 done"],
+                'debug',
+                logger,
+            )
     else:
         merged1 = [0, 0]
         merged2 = [0, 0]
@@ -1921,10 +1925,15 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             f"[{comm.rank}/{comm.size}]: B7... "],
             'debug',
             logger,
-            display=False
         )
     comm.Barrier()
     gc.collect()
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B7 done"],
+            'debug',
+            logger,
+        )
     sys.stderr.flush()
     io.get_overlaps(
         params, erase=True, normalize=templates_normalization, nb_cpu=nb_cpu, nb_gpu=nb_gpu, use_gpu=use_gpu
@@ -1936,10 +1945,15 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
             f"[{comm.rank}/{comm.size}]: B8... "],
             'debug',
             logger,
-            display=False
         )
     comm.Barrier()
     gc.collect()
+    if comm.rank == 0:
+        print_and_log([
+            f"[{comm.rank}/{comm.size}]: B8 done"],
+            'debug',
+            logger,
+        )
     sys.stderr.flush()
 
     if SHARED_MEMORY and ignore_dead_times:
