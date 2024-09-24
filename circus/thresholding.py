@@ -121,7 +121,7 @@ def main(params, nb_cpu, nb_gpu, use_gpu):
     to_explore = list(range(comm.rank, processed_chunks, comm.size))
 
     if comm.rank == 0:
-        to_explore = get_tqdm_progressbar(params, to_explore)
+        to_explore = get_tqdm_progressbar(params, to_explore, desc="thresholding")
 
     for gcount, gidx in enumerate(to_explore):
         # print "Node", comm.rank, "is analyzing chunk", gidx, "/", nb_chunks, " ..."

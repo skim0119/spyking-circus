@@ -810,6 +810,11 @@ def load_data(params, data, extension=''):
     file_out_suff = params.get('data', 'file_out_suff')
     data_file_noext = params.get('data', 'data_file_noext')
 
+    numpy_int = numpy.int64
+    intsize = MPI.INT64_T.Get_size()
+    floatsize = MPI.FLOAT.Get_size()
+    assert intsize == numpy_int().itemsize, "Data type size for numpy and MPI is ill-defined"
+
     if data == 'thresholds':
         filename = file_out_suff + '.basis.hdf5'
         spike_thresh = params.getfloat('detection', 'spike_thresh')
@@ -1039,7 +1044,7 @@ def load_data(params, data, extension=''):
             temp_x = myfile.get('temp_x')[:].ravel()
             temp_y = myfile.get('temp_y')[:].ravel()
             temp_data = myfile.get('temp_data')[:].ravel()
-            N_e, N_t, nb_templates = myfile.get('temp_shape')[:].ravel().astype(numpy.int32)
+            N_e, N_t, nb_templates = myfile.get('temp_shape')[:].ravel().astype(numpy_int)
             myfile.close()
             templates = scipy.sparse.csc_matrix((temp_data, (temp_x, temp_y)), shape=(N_e * N_t, nb_templates))
             return templates
@@ -1094,7 +1099,7 @@ def load_data(params, data, extension=''):
 
             bounds = numpy.searchsorted(over_x, res, 'left')
             sub_over = numpy.mod(over_x, N_over)
-            over_sorted = numpy.argsort(sub_over)# .astype(numpy.int32)
+            over_sorted = numpy.argsort(sub_over)
 
             bounds_2 = numpy.searchsorted(sub_over, res2, 'left', sorter=over_sorted)
 
@@ -1132,7 +1137,7 @@ def load_data(params, data, extension=''):
             over_data = myfile.get('over_data')[:].ravel()
             over_shape = myfile.get('over_shape')[:].ravel()
             over_sub = numpy.mod(over_x, int(numpy.sqrt(over_shape[0])))
-            over_sorted = numpy.argsort(over_sub)#.astype(numpy.int32)
+            over_sorted = numpy.argsort(over_sub)
             myfile.close()
             return over_x, over_y, over_data, over_sub, over_sorted, over_shape
         else:
@@ -1146,7 +1151,7 @@ def load_data(params, data, extension=''):
                 myfile = h5py.File(filename, 'r', libver='earliest')
                 if myfile.get('version').dtype == numpy.dtype('S5'):
                     version = myfile.get('version')[0].decode('ascii')
-                elif myfile.get('version').dtype == numpy.int32:
+                elif myfile.get('version').dtype == numpy.int32 or myfile.get('version').dtype == numpy.int64:
                     data = myfile.get('version')[:]
                     if len(data) == 3:
                         version = ".".join([str(int(i)) for i in data])
@@ -2403,14 +2408,76 @@ def get_overlaps(
         maxlags = numpy.zeros((len(to_explore), N_half), dtype=numpy.int32)
         maxoverlaps = numpy.zeros((len(to_explore), N_half), dtype=numpy.float32)
 
-        res = []
-        res2 = []
-        for i in to_explore:
-            res += [i * N_tm, i * N_tm + N_half]
-            res2 += [i, i+1]
+        # MOD: If searchsorted array is too big, just use single core to handle (150GB ram)
+        if (over_x.size > 5e8 or sub_over.size > 5e8) and comm.size > 2:
+        #if True and comm.size > 2:
+        #if False:
+            if comm.rank == 0:
+                print("Collective search sorted due to large memory array")
+                print(f"{over_x.shape=}, {over_x.dtype=}")
+                print(f"{sub_over.shape=}, {over_sorted.shape=}")
+                print(f"{type(sub_over)=}, {type(over_sorted)=}")
+                print(f"{sub_over.dtype=}, {over_sorted.dtype=}")
+                print(f"{N_half=}, {over_sorted.dtype=}")
+                _to_explore = numpy.arange(N_half)
+                _res = []
+                _res2 = []
+                for i in _to_explore:
+                    _res.extend([i * N_tm, i * N_tm + N_half])
+                    _res2.extend([i, i+1])
+                __bounds = numpy.searchsorted(over_x, _res, 'left')
+                __bounds_2 = numpy.searchsorted(sub_over, _res2, 'left', sorter=over_sorted)
+                _displ = numpy.zeros(comm.size, dtype=numpy.int_)
+                _count = numpy.zeros(comm.size, dtype=numpy.int_)
 
-        bounds = numpy.searchsorted(over_x, res, 'left')
-        bounds_2 = numpy.searchsorted(sub_over[over_sorted], res2, 'left')
+                # Rearange for Scatterv
+                _bounds = numpy.empty_like(__bounds)
+                _bounds_2 = numpy.empty_like(__bounds_2)
+                __displ = 0
+                for r in range(comm.size):
+                    ind = numpy.repeat(numpy.arange(N_half)[r::comm.size]*2, 2)
+                    ind[1::2] += 1
+                    _count[r] = ind.size
+                    _displ[r] = __displ
+                    _bounds[__displ:__displ+ind.size] = __bounds[ind]
+                    _bounds_2[__displ:__displ+ind.size] = __bounds_2[ind]
+                    __displ += ind.size
+            else:
+                _bounds = None
+                _bounds_2 = None
+                _displ = None
+                _count = numpy.zeros(comm.Get_size(), dtype=numpy.int64)
+            bounds = numpy.zeros(to_explore.size*2, dtype=numpy.int64)
+            bounds_2 = numpy.zeros(to_explore.size*2, dtype=numpy.int64)
+            if comm.rank == 0:
+                print(f"{_bounds.shape=}")
+                print(f"{_count.shape=}")
+                print(f"{_displ.shape=}")
+                print(f"{_displ=}")
+                print(f"{bounds.shape=}")
+                print(f"{to_explore.shape=}")
+            comm.Scatterv([_bounds, _count, _displ, MPI.INT64_T], bounds, root=0)
+            comm.Scatterv([_bounds_2, _count, _displ, MPI.INT64_T], bounds_2, root=0)
+            #bounds = bounds.astype(numpy.int32)
+            #bounds_2 = bounds_2.astype(numpy.int32)
+            print(f"rank={comm.Get_rank()} | {len(bounds)=}, {bounds=}")
+            print(f"rank={comm.Get_rank()} | {len(bounds_2)=}, {bounds_2=}")
+        else:
+            res = []
+            res2 = []
+            for i in to_explore:
+                res.extend([i * N_tm, i * N_tm + N_half])
+                res2.extend([i, i+1])
+
+            if comm.rank == 0:
+                print(f"{over_x.shape=}, {over_x.dtype=}")
+                print(f"{sub_over.shape=}, {over_sorted.shape=}")
+                print(f"{type(sub_over)=}, {type(over_sorted)=}")
+                print(f"{sub_over.dtype=}, {over_sorted.dtype=}")
+                print(f"{len(res)=}, {len(res2)=}")
+
+            bounds = numpy.searchsorted(over_x, res, 'left')
+            bounds_2 = numpy.searchsorted(sub_over, res2, 'left', sorter=over_sorted)
 
         duration = over_shape[1] // 2
         mask_duration = over_y < duration
