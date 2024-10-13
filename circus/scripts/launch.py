@@ -234,8 +234,10 @@ but a subset x,y can be done. Steps are:
 
 
         logfile = file_out + '.log'
-        if os.path.exists(logfile):
-            os.remove(logfile)
+
+        # commenting this out bcz of concurrency issues in Frontera
+        # if os.path.exists(logfile):
+        #     os.remove(logfile)
 
         logger = init_logging(logfile)
         params = CircusParser(real_file, params_only=params_only)
