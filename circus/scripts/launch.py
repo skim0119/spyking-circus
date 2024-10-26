@@ -462,37 +462,37 @@ but a subset x,y can be done. Steps are:
                         print_and_log(['Step "%s" failed for reason %s!' % (subtask, e)], 'error', logger)
                         sys.exit(0)
 
-    if preview or result:
+    # if preview or result:
 
-        from sys import platform
-        if not platform == 'win32':
-            if not ('DISPLAY' in os.environ and re.search(":\d", os.environ['DISPLAY'])!=None):
-                print_and_log(['Preview mode can not be used, check DISPLAY variable'], 'error', logger)
-                sys.exit(0)
+    #     from sys import platform
+    #     if not platform == 'win32':
+    #         if not ('DISPLAY' in os.environ and re.search(":\d", os.environ['DISPLAY'])!=None):
+    #             print_and_log(['Preview mode can not be used, check DISPLAY variable'], 'error', logger)
+    #             sys.exit(0)
 
-        from circus.shared import gui
-        import pylab
-        try:
-            from PyQt5.QtWidgets import QApplication
-        except ImportError:
-            from matplotlib.backends import qt_compat
-            use_pyside = qt_compat.QT_API == qt_compat.QT_API_PYSIDE
-            if use_pyside:
-                from PySide.QtGui import QApplication
-            else:
-                from PyQt4.QtGui import QApplication
-        app = QApplication([])
-        try:
-            pylab.style.use('ggplot')
-        except Exception:
-            pass
+    #     from circus.shared import gui
+    #     import pylab
+    #     try:
+    #         from PyQt5.QtWidgets import QApplication
+    #     except ImportError:
+    #         from matplotlib.backends import qt_compat
+    #         use_pyside = qt_compat.QT_API == qt_compat.QT_API_PYSIDE
+    #         if use_pyside:
+    #             from PySide.QtGui import QApplication
+    #         else:
+    #             from PyQt4.QtGui import QApplication
+    #     app = QApplication([])
+    #     try:
+    #         pylab.style.use('ggplot')
+    #     except Exception:
+    #         pass
 
-        if preview:
-            print_and_log(['Launching the preview GUI...'], 'debug', logger)
-            mygui = gui.PreviewGUI(new_params)
-            shutil.rmtree(tmp_path_loc)
-        elif result:
-            data_file = params.get_data_file()
-            print_and_log(['Launching the result GUI...'], 'debug', logger)
-            mygui = gui.PreviewGUI(params, show_fit=True)
-        sys.exit(app.exec_())
+    #     if preview:
+    #         print_and_log(['Launching the preview GUI...'], 'debug', logger)
+    #         mygui = gui.PreviewGUI(new_params)
+    #         shutil.rmtree(tmp_path_loc)
+    #     elif result:
+    #         data_file = params.get_data_file()
+    #         print_and_log(['Launching the result GUI...'], 'debug', logger)
+    #         mygui = gui.PreviewGUI(params, show_fit=True)
+    #     sys.exit(app.exec_())
